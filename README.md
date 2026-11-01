@@ -9,6 +9,7 @@ The public project is provider-neutral: upstream endpoints, credentials, signing
 - **OpenGate**: multiple access-provider accounts, aggregated doors, remote opening, and temporary access codes
 - **OpenDevice**: authorized smart-appliance accounts and device controls; dryer status, programs, operation, and appointments are currently implemented
 - **OpenLock**: smart-lock status, capture albums, security and operation records, and temporary passwords
+- **OpenAuto**: read-only vehicle status, range, battery/fuel levels, mileage, and energy analysis; provider integration is in progress
 
 ## Shared foundation
 
