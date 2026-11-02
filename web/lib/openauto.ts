@@ -1,4 +1,5 @@
 export type VehiclePowerState = "off" | "on" | "unknown";
+export type VehicleCornerState = { frontLeft?: boolean; frontRight?: boolean; rearLeft?: boolean; rearRight?: boolean };
 
 export type VehicleSummary = {
   id: string;
@@ -16,6 +17,15 @@ export type VehicleSummary = {
   speedKph?: number;
   signalStrength?: number;
   online?: boolean;
+  securityState?: "normal" | "armed" | "alarm" | "unknown";
+  driveMode?: "electric" | "hybrid" | "unknown";
+  okIndicator?: boolean;
+  engineCoolantC?: number;
+  doorsOpen?: VehicleCornerState;
+  doorsUnlocked?: VehicleCornerState;
+  windowsOpen?: VehicleCornerState;
+  hoodOpen?: boolean;
+  skylightOpen?: boolean;
   tirePressureKpa?: { frontLeft?: number; frontRight?: number; rearLeft?: number; rearRight?: number };
   updatedAt?: string;
 };
@@ -88,6 +98,20 @@ function chargingState(value: unknown): VehicleSummary["chargingState"] {
   return "unknown";
 }
 
+function flag(value: unknown, active: number) {
+  const number = finite(value);
+  return number === undefined ? undefined : number === active;
+}
+
+function timestamp(value: unknown) {
+  const stringValue = text(value);
+  if (stringValue) return stringValue;
+  const number = finite(value);
+  if (number === undefined || number <= 0) return undefined;
+  const date = new Date(number < 10_000_000_000 ? number * 1000 : number);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
 export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : VehicleSummary {
   const id = text(raw.id) || text(raw.vehicleId) || text(raw.vin) || fallbackId;
   if (!id) throw new Error("Vehicle identifier is missing");
@@ -97,10 +121,13 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     ? Math.max(0, Math.round((hours || 0) * 60 + (minutes || 0)))
     : undefined;
   const power = String(raw.powerState ?? raw.vehiclePowerState ?? "").toLowerCase();
+  const powerGear = finite(raw.powerGear);
+  const vehicleState = finite(raw.vehicleState);
+  const driveMode = finite(raw.pwr);
   return {
     id,
     name: text(raw.name) || text(raw.vehicleName) || text(raw.modelName) || "车辆",
-    powerState: ["1", "on", "running"].includes(power) ? "on" : ["0", "off", "stopped"].includes(power) ? "off" : "unknown",
+    powerState: powerGear === 3 || ["1", "on", "running"].includes(power) ? "on" : powerGear === 1 || ["0", "off", "stopped"].includes(power) ? "off" : "unknown",
     estimatedRangeKm: finite(raw.enduranceMileage),
     electricRangeKm: nonnegative(raw.evEndurance),
     fuelRangeKm: nonnegative(raw.oilEndurance),
@@ -113,11 +140,20 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     speedKph: nonnegative(raw.speed),
     signalStrength: finite(raw.signalStrength),
     online: finite(raw.onlineStatus) === 1,
+    securityState: vehicleState === 0 ? "normal" : vehicleState === 1 ? "armed" : vehicleState === 2 ? "alarm" : "unknown",
+    driveMode: driveMode === 0 ? "hybrid" : driveMode === 1 ? "electric" : "unknown",
+    okIndicator: flag(raw.okLight, 1),
+    engineCoolantC: finite(raw.ect) === 0 ? finite(raw.ectValue) : undefined,
+    doorsOpen: { frontLeft: flag(raw.leftFrontDoor, 1), frontRight: flag(raw.rightFrontDoor, 1), rearLeft: flag(raw.leftRearDoor, 1), rearRight: flag(raw.rightRearDoor, 1) },
+    doorsUnlocked: { frontLeft: flag(raw.leftFrontDoorLock, 1), frontRight: flag(raw.rightFrontDoorLock, 1), rearLeft: flag(raw.leftRearDoorLock, 1), rearRight: flag(raw.rightRearDoorLock, 1) },
+    windowsOpen: { frontLeft: flag(raw.leftFrontWindow, 2), frontRight: flag(raw.rightFrontWindow, 2), rearLeft: flag(raw.leftRearWindow, 2), rearRight: flag(raw.rightRearWindow, 2) },
+    hoodOpen: flag(raw.forehold, 1),
+    skylightOpen: flag(raw.skylight, 2),
     tirePressureKpa: {
       frontLeft: nonnegative(raw.leftFrontTirepressure), frontRight: nonnegative(raw.rightFrontTirepressure),
       rearLeft: nonnegative(raw.leftRearTirepressure), rearRight: nonnegative(raw.rightRearTirepressure),
     },
-    updatedAt: text(raw.updatedAt) || text(raw.updateTime) || text(raw.time),
+    updatedAt: timestamp(raw.updatedAt) || timestamp(raw.updateTime) || timestamp(raw.time),
   };
 }
 
@@ -134,6 +170,6 @@ export function normalizeVehicleEnergy(raw: RawVehicle): VehicleEnergy {
     cumulativeElectricityKwhPer100Km: finite(raw.cumulativeElectricityKwhPer100Km) ?? finite(raw.totalElecAverage) ?? finite(raw.totalAverageEle),
     cumulativeFuelLitresPer100Km: finite(raw.cumulativeFuelLitresPer100Km) ?? finite(raw.totalOilAverage) ?? finite(raw.totalAverageFuel),
     recentTrend: [],
-    updatedAt: text(raw.updatedAt) || text(raw.updateTime) || text(raw.time),
+    updatedAt: timestamp(raw.updatedAt) || timestamp(raw.updateTime) || timestamp(raw.time),
   };
 }

@@ -40,9 +40,39 @@ test("normalizes a vehicle-condition response without retaining provider fields"
     speedKph: 0,
     signalStrength: 4,
     online: true,
+    securityState: "unknown",
+    driveMode: "unknown",
+    okIndicator: undefined,
+    engineCoolantC: undefined,
+    doorsOpen: { frontLeft: undefined, frontRight: undefined, rearLeft: undefined, rearRight: undefined },
+    doorsUnlocked: { frontLeft: undefined, frontRight: undefined, rearLeft: undefined, rearRight: undefined },
+    windowsOpen: { frontLeft: undefined, frontRight: undefined, rearLeft: undefined, rearRight: undefined },
+    hoodOpen: undefined,
+    skylightOpen: undefined,
     tirePressureKpa: { frontLeft: 250, frontRight: 251, rearLeft: 248, rearRight: 249 },
     updatedAt: undefined,
   });
+});
+
+test("normalizes the official vehicle-state and opening codes", () => {
+  const summary = normalizeVehicleSummary({
+    vin: "TEST-VEHICLE", powerGear: 3, vehicleState: 1, pwr: 1, okLight: 1, ect: 0, ectValue: 82,
+    leftFrontDoor: 1, rightFrontDoor: 0, leftRearDoor: 0, rightRearDoor: 1,
+    leftFrontDoorLock: 1, rightFrontDoorLock: 0, leftRearDoorLock: 0, rightRearDoorLock: 0,
+    leftFrontWindow: 2, rightFrontWindow: 0, leftRearWindow: 0, rightRearWindow: 2,
+    forehold: 1, skylight: 2, time: 1_800_000_000,
+  });
+  assert.equal(summary.powerState, "on");
+  assert.equal(summary.securityState, "armed");
+  assert.equal(summary.driveMode, "electric");
+  assert.equal(summary.okIndicator, true);
+  assert.equal(summary.engineCoolantC, 82);
+  assert.deepEqual(summary.doorsOpen, { frontLeft: true, frontRight: false, rearLeft: false, rearRight: true });
+  assert.deepEqual(summary.doorsUnlocked, { frontLeft: true, frontRight: false, rearLeft: false, rearRight: false });
+  assert.deepEqual(summary.windowsOpen, { frontLeft: true, frontRight: false, rearLeft: false, rearRight: true });
+  assert.equal(summary.hoodOpen, true);
+  assert.equal(summary.skylightOpen, true);
+  assert.match(summary.updatedAt || "", /^2027-/);
 });
 
 test("normalizes current and cumulative energy readings", () => {
