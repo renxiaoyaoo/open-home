@@ -7,6 +7,10 @@ export type OpenAutoSession = { userId: string; superId?: string; signToken: str
 export type OpenAutoSnapshot = { summary: VehicleSummary; energy: VehicleEnergy };
 type Json = Record<string, unknown>;
 
+export class OpenAutoUpstreamError extends Error {
+  constructor(readonly code: string, message: string) { super(message); this.name = "OpenAutoUpstreamError"; }
+}
+
 function md5(value: string) { return createHash("md5").update(value, "utf8").digest("hex").toUpperCase(); }
 function sha1Mixed(value: string) { return [...createHash("sha1").update(value, "utf8").digest()].map((byte, index) => { const hex = byte.toString(16); return index % 2 ? hex.toLowerCase() : hex.toUpperCase(); }).join(""); }
 function aesEncrypt(value: Json, key: string) { const cipher = createCipheriv("aes-128-cbc", Buffer.from(key, "hex"), Buffer.alloc(16)); return Buffer.concat([cipher.update(JSON.stringify(value), "utf8"), cipher.final()]).toString("hex").toUpperCase(); }
@@ -49,7 +53,7 @@ export class DirectOpenAutoProvider {
     return { userId, superId: superId || undefined, signToken, encryToken, displayName: String(decoded.nickName || "OpenAuto 账号") };
   }
   async vehicles() {
-    const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); const list = Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []; return (list as Json[]).filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") }));
+    const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new OpenAutoUpstreamError(String(response.code ?? "unknown"), String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); const list = Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []; return (list as Json[]).filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") }));
   }
   private async rawSummary(vehicleId: string) {
     const inner = { ...this.inner(), energyType: this.client("energyType", "0"), tboxVersion: this.client("tboxVersion", "3"), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("latestCondition"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆状态加载失败")); return aesDecrypt(String(response.respondData || ""), built.contentKey);
