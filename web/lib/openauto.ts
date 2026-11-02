@@ -5,12 +5,18 @@ export type VehicleSummary = {
   name: string;
   powerState: VehiclePowerState;
   estimatedRangeKm?: number;
+  electricRangeKm?: number;
+  fuelRangeKm?: number;
   tractionBatteryPercent?: number;
   fuelPercent?: number;
   chargingState?: "charging" | "complete" | "stopped" | "unknown";
   chargingPowerKw?: number;
   remainingChargeMinutes?: number;
   odometerKm?: number;
+  speedKph?: number;
+  signalStrength?: number;
+  online?: boolean;
+  tirePressureKpa?: { frontLeft?: number; frontRight?: number; rearLeft?: number; rearRight?: number };
   updatedAt?: string;
 };
 
@@ -60,6 +66,11 @@ function finite(value: unknown) {
   return Number.isFinite(number) ? number : undefined;
 }
 
+function nonnegative(value: unknown) {
+  const number = finite(value);
+  return number !== undefined && number >= 0 ? number : undefined;
+}
+
 function percent(value: unknown) {
   const number = finite(value);
   return number !== undefined && number >= 0 && number <= 100 ? number : undefined;
@@ -80,8 +91,8 @@ function chargingState(value: unknown): VehicleSummary["chargingState"] {
 export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : VehicleSummary {
   const id = text(raw.id) || text(raw.vehicleId) || text(raw.vin) || fallbackId;
   if (!id) throw new Error("Vehicle identifier is missing");
-  const hours = finite(raw.remainingHours);
-  const minutes = finite(raw.remainingMinutes);
+  const hours = nonnegative(raw.remainingHours);
+  const minutes = nonnegative(raw.remainingMinutes);
   const remainingChargeMinutes = hours !== undefined || minutes !== undefined
     ? Math.max(0, Math.round((hours || 0) * 60 + (minutes || 0)))
     : undefined;
@@ -91,26 +102,37 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     name: text(raw.name) || text(raw.vehicleName) || text(raw.modelName) || "车辆",
     powerState: ["1", "on", "running"].includes(power) ? "on" : ["0", "off", "stopped"].includes(power) ? "off" : "unknown",
     estimatedRangeKm: finite(raw.enduranceMileage),
+    electricRangeKm: nonnegative(raw.evEndurance),
+    fuelRangeKm: nonnegative(raw.oilEndurance),
     tractionBatteryPercent: percent(raw.elecPercent),
     fuelPercent: percent(raw.oilPercent),
     chargingState: chargingState(raw.chargingState),
-    chargingPowerKw: finite(raw.chargingPower),
+    chargingPowerKw: nonnegative(raw.chargingPower),
     remainingChargeMinutes,
-    odometerKm: finite(raw.totalMileage),
+    odometerKm: nonnegative(raw.totalMileage),
+    speedKph: nonnegative(raw.speed),
+    signalStrength: finite(raw.signalStrength),
+    online: finite(raw.onlineStatus) === 1,
+    tirePressureKpa: {
+      frontLeft: nonnegative(raw.leftFrontTirepressure), frontRight: nonnegative(raw.rightFrontTirepressure),
+      rearLeft: nonnegative(raw.leftRearTirepressure), rearRight: nonnegative(raw.rightRearTirepressure),
+    },
     updatedAt: text(raw.updatedAt) || text(raw.updateTime) || text(raw.time),
   };
 }
 
 export function normalizeVehicleEnergy(raw: RawVehicle): VehicleEnergy {
   return {
-    recentDistanceKm: finite(raw.recentDistanceKm) ?? finite(raw.recent50kmMileage),
+    recentDistanceKm: finite(raw.recentDistanceKm) ?? finite(raw.recent50kmMileage) ?? (raw.recentlyFiftyAverageEle !== undefined || raw.recentlyFiftyAverageFuel !== undefined ? 50 : undefined),
     equivalentFuelLitresPer100Km: finite(raw.equivalentFuelLitresPer100Km) ?? finite(raw.recent50kmEnergy) ?? finite(raw.nearestEnergyConsumption) ?? finite(raw.energyConsumption),
-    electricityKwhPer100Km: finite(raw.electricityKwhPer100Km) ?? finite(raw.recent50kmElecAverage),
-    fuelLitresPer100Km: finite(raw.fuelLitresPer100Km) ?? finite(raw.recent50kmOilAverage),
+    electricityKwhPer100Km: finite(raw.electricityKwhPer100Km) ?? finite(raw.recent50kmElecAverage) ?? finite(raw.recentlyFiftyAverageEle),
+    fuelLitresPer100Km: finite(raw.fuelLitresPer100Km) ?? finite(raw.recent50kmOilAverage) ?? finite(raw.recentlyFiftyAverageFuel),
+    electricityKwh: nonnegative(raw.totalPower),
+    fuelLitres: nonnegative(raw.totalOil),
     totalDistanceKm: finite(raw.totalDistanceKm) ?? finite(raw.totalMileage),
     cumulativeEquivalentFuelLitresPer100Km: finite(raw.cumulativeEquivalentFuelLitresPer100Km) ?? finite(raw.totalEnergy) ?? finite(raw.totalConsumptionEn),
-    cumulativeElectricityKwhPer100Km: finite(raw.cumulativeElectricityKwhPer100Km) ?? finite(raw.totalElecAverage),
-    cumulativeFuelLitresPer100Km: finite(raw.cumulativeFuelLitresPer100Km) ?? finite(raw.totalOilAverage),
+    cumulativeElectricityKwhPer100Km: finite(raw.cumulativeElectricityKwhPer100Km) ?? finite(raw.totalElecAverage) ?? finite(raw.totalAverageEle),
+    cumulativeFuelLitresPer100Km: finite(raw.cumulativeFuelLitresPer100Km) ?? finite(raw.totalOilAverage) ?? finite(raw.totalAverageFuel),
     recentTrend: [],
     updatedAt: text(raw.updatedAt) || text(raw.updateTime) || text(raw.time),
   };

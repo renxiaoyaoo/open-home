@@ -51,7 +51,10 @@ export class DirectOpenAutoProvider {
   async vehicles() {
     const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); const list = Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []; return (list as Json[]).filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") }));
   }
+  private async rawSummary(vehicleId: string) {
+    const inner = { ...this.inner(), energyType: this.client("energyType", "0"), tboxVersion: this.client("tboxVersion", "3"), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("latestCondition"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆状态加载失败")); return aesDecrypt(String(response.respondData || ""), built.contentKey);
+  }
   async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
-    const inner = { ...this.inner(), energyType: this.client("energyType", "0"), tboxVersion: this.client("tboxVersion", "3"), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("latestCondition"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆状态加载失败")); const raw = aesDecrypt(String(response.respondData || ""), built.contentKey); return { summary: normalizeVehicleSummary(raw, vehicleId), energy: normalizeVehicleEnergy(raw) };
+    const raw = await this.rawSummary(vehicleId); return { summary: normalizeVehicleSummary(raw, vehicleId), energy: normalizeVehicleEnergy(raw) };
   }
 }

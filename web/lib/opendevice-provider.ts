@@ -19,7 +19,7 @@ export class OpenDeviceProvider {
 
   constructor(session?: OpenDeviceSession) { this.session = session; this.deviceId = session?.deviceId || this.config.credentials.deviceId; this.uid = session?.uid; this.accessToken = session?.accessToken; }
   private general(extra: Record<string, unknown> = {}) { const client = this.config.client; return { src: this.appId, format: "2", stamp: stamp(), platformId: client.platformId, deviceId: this.deviceId, reqId: randomBytes(16).toString("hex"), uid: this.uid, clientType: client.clientType, appId: this.appId, language: client.language, ...extra }; }
-  private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string>; refresh?: boolean } = {}) {
+  private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string>; refresh?: boolean } = {}): Promise<unknown> {
     const method = options.method || "POST"; const body = options.data === undefined ? "" : JSON.stringify(options.data); const nonce = String(Math.floor(Date.now() / 1000));
     const headers: Record<string, string> = { "content-type": "application/json; charset=utf-8", version: this.config.client.version, secretVersion: this.config.client.secretVersion, random: nonce, sign: createHmac("sha256", this.hmacKey).update(`${this.iotKey}${body}${nonce}`).digest("hex"), ...options.headers };
     if (this.uid) headers.uid = this.uid; if (this.accessToken) headers.accessToken = this.accessToken;

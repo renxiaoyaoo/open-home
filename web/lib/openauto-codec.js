@@ -1,9 +1,7 @@
 'use strict';
 
 import { providerBundle } from "./provider-bundle.ts";
-const codec = providerBundle().auto?.codec;
-if (!codec) throw new Error("OpenAuto provider is not configured");
-const encodedTables = codec.tables;
+let encodedTables;
 
 function decodeByteTable(name) {
   const base64 = encodedTables[name];
@@ -34,27 +32,39 @@ function decodeU32Table(name) {
 }
 
 // Encrypt tables
-const ENC_INIT_XOR  = decodeByteTable('encInitXor');
-const ENC_ROUND_XOR = decodeByteTable('encRoundXor');
-const ENC_SBOX      = decodeByteTable('encSbox');
-const ENC_FINAL_XOR = decodeByteTable('encFinalXor');
-const ENC_TE0       = decodeU32Table('encTe0');
-const ENC_TE1       = decodeU32Table('encTe1');
-const ENC_TE2       = decodeU32Table('encTe2');
-const ENC_TE3       = decodeU32Table('encTe3');
+let ENC_INIT_XOR;
+let ENC_ROUND_XOR;
+let ENC_SBOX;
+let ENC_FINAL_XOR;
+let ENC_TE0;
+let ENC_TE1;
+let ENC_TE2;
+let ENC_TE3;
 
 // Decrypt tables
-const DEC_INIT_XOR  = decodeByteTable('decInitXor');
-const DEC_ROUND_XOR = decodeByteTable('decRoundXor');
-const DEC_INV_SBOX  = decodeByteTable('decInvSbox');
-const DEC_FINAL_XOR = decodeByteTable('decFinalXor');
-const DEC_TD0       = decodeU32Table('decTd0');
-const DEC_TD1       = decodeU32Table('decTd1');
-const DEC_TD2       = decodeU32Table('decTd2');
-const DEC_TD3       = decodeU32Table('decTd3');
+let DEC_INIT_XOR;
+let DEC_ROUND_XOR;
+let DEC_INV_SBOX;
+let DEC_FINAL_XOR;
+let DEC_TD0;
+let DEC_TD1;
+let DEC_TD2;
+let DEC_TD3;
 
 // --- Static WBSK keys (device-bound, not per-session) ---
-const WBSK_KEYS = codec;
+let WBSK_KEYS;
+
+function ensureCodec() {
+  if (WBSK_KEYS) return;
+  const codec = providerBundle().auto?.codec;
+  if (!codec) throw new Error("OpenAuto provider is not configured");
+  encodedTables = codec.tables;
+  ENC_INIT_XOR = decodeByteTable('encInitXor'); ENC_ROUND_XOR = decodeByteTable('encRoundXor'); ENC_SBOX = decodeByteTable('encSbox'); ENC_FINAL_XOR = decodeByteTable('encFinalXor');
+  ENC_TE0 = decodeU32Table('encTe0'); ENC_TE1 = decodeU32Table('encTe1'); ENC_TE2 = decodeU32Table('encTe2'); ENC_TE3 = decodeU32Table('encTe3');
+  DEC_INIT_XOR = decodeByteTable('decInitXor'); DEC_ROUND_XOR = decodeByteTable('decRoundXor'); DEC_INV_SBOX = decodeByteTable('decInvSbox'); DEC_FINAL_XOR = decodeByteTable('decFinalXor');
+  DEC_TD0 = decodeU32Table('decTd0'); DEC_TD1 = decodeU32Table('decTd1'); DEC_TD2 = decodeU32Table('decTd2'); DEC_TD3 = decodeU32Table('decTd3');
+  WBSK_KEYS = codec;
+}
 
 // --- Protected XOR operation ---
 // Nibble-decomposed lookup: operates in an encoded byte domain.
@@ -374,6 +384,7 @@ function encryptWbskEnvelope(plaintext, innerEncKeyHex, innerEncIvHex, outerEncK
 
 // --- Convenience wrappers using hardcoded keys ---
 function encryptEnvelope(plaintext) {
+  ensureCodec();
   return encryptWbskEnvelope(
     plaintext,
     WBSK_KEYS.innerEncryptKey,
@@ -384,6 +395,7 @@ function encryptEnvelope(plaintext) {
 }
 
 function decryptEnvelope(base64Str) {
+  ensureCodec();
   return decryptWbskEnvelope(
     base64Str,
     WBSK_KEYS.outerDecryptKey,
