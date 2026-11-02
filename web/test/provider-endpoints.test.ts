@@ -79,6 +79,21 @@ test("refreshes an expired appliance session and retries the original request on
   assert.equal(session.accessTokenExpiresAt, 99);
 });
 
+test("refreshes an appliance session when the provider rejects the token password", async () => {
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  let homes = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input); const body = JSON.parse(String(init?.body || "{}")); calls.push({ url, body });
+    if (url.endsWith("/homes")) return Response.json(homes++ === 0 ? { code: 65012, msg: "token invalid" } : { code: 0, data: [] });
+    return Response.json({ code: 0, data: { accessToken: "new-token", expired: 123 } });
+  }) as typeof fetch;
+  const session = { uid: "user", accessToken: "old-token", deviceId: "client", tokenPwd: "refresh-secret" };
+  const provider = new OpenDeviceProvider(session);
+  assert.deepEqual(await provider.listHomes(), []);
+  assert.equal(session.accessToken, "new-token");
+  assert.equal(calls.length, 3);
+});
+
 test("matches the provider app's literal sessionId URL concatenation", () => {
   const url = providerUrl("mobile", "account/profile");
   assert.equal(appendRawSessionId(url, "abc:0123456789abcdef"), "https://mobile.provider.example/api/account/profile?sessionId=abc:0123456789abcdef");

@@ -26,7 +26,7 @@ export class OpenDeviceProvider {
     const response = await fetch(`${this.url}${alias}${options.query || ""}`, { method, headers, body: method === "GET" ? undefined : body, signal: AbortSignal.timeout(12_000) });
     const payload = await response.json().catch(() => ({ code: response.status, msg: "invalid response" })) as { code?: string | number; msg?: string; data?: unknown };
     if (!response.ok || String(payload.code) !== "0") {
-      if (options.refresh !== false && String(payload.code) === "40002" && this.session?.tokenPwd) {
+      if (options.refresh !== false && ["40002", "65012"].includes(String(payload.code)) && this.session?.tokenPwd) {
         await this.refreshAccessToken();
         return this.request(alias, { ...options, refresh: false });
       }
