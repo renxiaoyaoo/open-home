@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 
 const envFile = process.argv[2];
 const wranglerConfig = process.argv[3] || "wrangler.production.jsonc";
+const webRoot = resolve(import.meta.dirname, "../../web");
+const wrangler = resolve(webRoot, "node_modules/.bin/wrangler");
+const config = resolve(webRoot, wranglerConfig);
 if (!envFile) throw new Error("Usage: node sync-secrets.mjs <private-env-file> [wrangler-config]");
 
 const values = new Map();
@@ -29,7 +33,7 @@ if (!sessionKey) throw new Error("Missing required secret: OPENHOME_SESSION_ENCR
 const parts = source.match(/[\s\S]{1,4400}/g) || [];
 const secrets = [["OPENHOME_PROVIDER_BUNDLE_PART_COUNT", String(parts.length)], ...parts.map((value, index) => [`OPENHOME_PROVIDER_BUNDLE_PART_${index}`, value]), ["OPENHOME_SESSION_ENCRYPTION_KEY", sessionKey]];
 for (const [name, value] of secrets) {
-  const result = spawnSync("./node_modules/.bin/wrangler", ["secret", "put", name, "--config", wranglerConfig], { input: `${value}\n`, encoding: "utf8" });
+  const result = spawnSync(wrangler, ["secret", "put", name, "--config", config], { input: `${value}\n`, encoding: "utf8" });
   if (result.status !== 0) { process.stderr.write(result.stderr || `Failed to sync ${name}\n`); process.exit(result.status || 1); }
   console.log(`Synced ${name}`);
 }
