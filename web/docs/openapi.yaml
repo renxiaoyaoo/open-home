@@ -23,13 +23,13 @@ paths:
   /doors/{doorKey}/password:
     get: { summary: Get a temporary door code, parameters: [{ $ref: "#/components/parameters/doorKey" }], responses: { "200": { description: Temporary code } } }
   /dryer/sms:
-    post: { summary: Request an OpenDevice login code, requestBody: { $ref: "#/components/requestBodies/SmsRequest" }, responses: { "200": { description: Accepted } } }
+    post: { summary: Request an OpenLiving login code, requestBody: { $ref: "#/components/requestBodies/SmsRequest" }, responses: { "200": { description: Accepted } } }
   /dryer/login:
-    post: { summary: Connect an OpenDevice account, requestBody: { $ref: "#/components/requestBodies/DeviceLogin" }, responses: { "200": { description: Connected account handle } } }
+    post: { summary: Connect an OpenLiving account, requestBody: { $ref: "#/components/requestBodies/DeviceLogin" }, responses: { "200": { description: Connected account handle } } }
   /dryer/logout:
-    post: { summary: Disconnect an OpenDevice account, responses: { "200": { description: Disconnected } } }
+    post: { summary: Disconnect an OpenLiving account, responses: { "200": { description: Disconnected } } }
   /dryer/profile:
-    get: { summary: Get active OpenDevice account, responses: { "200": { description: Account profile } } }
+    get: { summary: Get active OpenLiving account, responses: { "200": { description: Account profile } } }
   /dryer/homes:
     get: { summary: List current homes, responses: { "200": { description: Home list } } }
   /dryer/devices:

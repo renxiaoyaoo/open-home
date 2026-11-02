@@ -8,7 +8,7 @@ import { AutoApp } from "./auto-app";
 type Feature = "gate" | "dryer" | "lock" | "auto";
 const features = [
   { id: "gate" as const, label: "OpenGate", detail: "门禁", color: "#9a654f", icon: DoorOpen },
-  { id: "dryer" as const, label: "OpenDevice", detail: "智能家电", color: "#496b71", icon: HousePlug },
+  { id: "dryer" as const, label: "OpenLiving", detail: "智能家电", color: "#496b71", icon: HousePlug },
   { id: "lock" as const, label: "OpenLock", detail: "智能门锁", color: "#657055", icon: LockKeyhole },
   { id: "auto" as const, label: "OpenAuto", detail: "车辆", color: "#6f6559", icon: CarFront },
 ];

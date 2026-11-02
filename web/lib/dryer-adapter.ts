@@ -21,7 +21,7 @@ export async function callDryerAdapter(operation: DryerOperation, request: Reque
   if (operation === "login") { const mobile = String(body.mobile || ""); const code = String(body.code || ""); if (!/^1\d{10}$/.test(mobile) || !/^\d{6}$/.test(code)) throw new Error("手机号或验证码无效"); const session = await new OpenDeviceProvider().smsLogin(mobile, code); const accountId = await saveProviderSession("opendevice", `od-${randomUUID()}`, mobile, session.displayName || null, session); return Response.json({ ok: true, data: { connected: true, accountId } }); }
   if (operation === "logout") { await removeProviderAccount("opendevice", String(body.accountId || "") || undefined); return clearLegacy(Response.json({ ok: true })); }
   const stored = await storedSession(request, url.searchParams.get("accountId") || undefined);
-  if (operation === "profile") return stored.migrated ? clearLegacy(Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenDevice 账号" } })) : Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenDevice 账号" } });
+  if (operation === "profile") return stored.migrated ? clearLegacy(Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenLiving 账号" } })) : Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenLiving 账号" } });
   const client = new OpenDeviceProvider(stored.session); let data: unknown;
   if (operation === "homes") data = await client.listHomes();
   else if (operation === "devices") data = await client.listDevices(id(url.searchParams.get("homeId"), "家庭"));

@@ -3,7 +3,7 @@
 OpenHome is a small home-control hub. It currently brings together two independent features:
 
 - **OpenGate** for access control
-- **OpenDevice** for smart appliances; dryer status, programs, operation, and appointments are currently implemented
+- **OpenLiving** for smart appliances; dryer status, programs, operation, and appointments are currently implemented
 
 The feature switcher is part of the product shell; OpenGate remains a distinct module rather than the name of the whole site.
 
@@ -12,7 +12,7 @@ The application can run in two modes:
 - Node.js 22.13+ with the built-in SQLite driver and `OPENHOME_DATABASE_PATH`
 - Cloudflare Workers with a D1 binding named `DB`
 
-All provider-specific values are runtime configuration. Copy `.env.example`, supply the private OpenGate and OpenDevice provider configuration, and never commit real endpoints, credentials, sessions, or signing material.
+All provider-specific values are runtime configuration. Copy `.env.example`, supply the private OpenGate and OpenLiving provider configuration, and never commit real endpoints, credentials, sessions, or signing material.
 
 ```sh
 npm ci

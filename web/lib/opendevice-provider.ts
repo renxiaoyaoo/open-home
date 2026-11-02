@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { DRYER_PROGRAM_IDS, DRYER_PROGRAMS } from "./dryer-programs.ts";
 import { deviceRoute, providerBundle } from "./provider-bundle.ts";
 
-export type OpenDeviceSession = { uid: string; accessToken: string; deviceId: string; displayName?: string };
+export type OpenDeviceSession = { uid: string; accessToken: string; deviceId: string; displayName?: string; tokenPwd?: string; accessTokenExpiresAt?: number };
 function stamp(now = new Date()) { return now.toISOString().replace(/[-:T]/g, "").slice(0, 14); }
 
 export class OpenDeviceProvider {
@@ -15,30 +15,52 @@ export class OpenDeviceProvider {
   readonly deviceId: string;
   private uid?: string;
   private accessToken?: string;
+  private readonly session?: OpenDeviceSession;
 
-  constructor(session?: OpenDeviceSession) { this.deviceId = session?.deviceId || this.config.credentials.deviceId; this.uid = session?.uid; this.accessToken = session?.accessToken; }
+  constructor(session?: OpenDeviceSession) { this.session = session; this.deviceId = session?.deviceId || this.config.credentials.deviceId; this.uid = session?.uid; this.accessToken = session?.accessToken; }
   private general(extra: Record<string, unknown> = {}) { const client = this.config.client; return { src: this.appId, format: "2", stamp: stamp(), platformId: client.platformId, deviceId: this.deviceId, reqId: randomBytes(16).toString("hex"), uid: this.uid, clientType: client.clientType, appId: this.appId, language: client.language, ...extra }; }
-  private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string> } = {}) {
+  private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string>; refresh?: boolean } = {}) {
     const method = options.method || "POST"; const body = options.data === undefined ? "" : JSON.stringify(options.data); const nonce = String(Math.floor(Date.now() / 1000));
     const headers: Record<string, string> = { "content-type": "application/json; charset=utf-8", version: this.config.client.version, secretVersion: this.config.client.secretVersion, random: nonce, sign: createHmac("sha256", this.hmacKey).update(`${this.iotKey}${body}${nonce}`).digest("hex"), ...options.headers };
     if (this.uid) headers.uid = this.uid; if (this.accessToken) headers.accessToken = this.accessToken;
     const response = await fetch(`${this.url}${alias}${options.query || ""}`, { method, headers, body: method === "GET" ? undefined : body, signal: AbortSignal.timeout(12_000) });
     const payload = await response.json().catch(() => ({ code: response.status, msg: "invalid response" })) as { code?: string | number; msg?: string; data?: unknown };
-    if (!response.ok || String(payload.code) !== "0") throw new Error(`OpenDevice provider: ${payload.code ?? response.status} ${payload.msg || "request failed"}`); return payload.data;
+    if (!response.ok || String(payload.code) !== "0") {
+      if (options.refresh !== false && String(payload.code) === "40002" && this.session?.tokenPwd) {
+        await this.refreshAccessToken();
+        return this.request(alias, { ...options, refresh: false });
+      }
+      throw new Error(`OpenLiving provider: ${payload.code ?? response.status} ${payload.msg || "request failed"}`);
+    }
+    return payload.data;
+  }
+  private async refreshAccessToken() {
+    if (!this.uid || !this.session?.tokenPwd) throw new Error("OpenLiving session cannot be refreshed");
+    const result = await this.request(deviceRoute("refresh"), {
+      data: { timestamp: stamp(), data: { tokenPwd: this.session.tokenPwd, clientType: 1, platform: 2, iotAppId: this.appId, deviceId: this.deviceId } },
+      headers: { userId: this.uid },
+      refresh: false,
+    }) as { accessToken?: string; expired?: number };
+    if (!result.accessToken) throw new Error("OpenLiving session refresh did not return a token");
+    this.accessToken = result.accessToken;
+    this.session.accessToken = result.accessToken;
+    if (Number.isFinite(Number(result.expired))) this.session.accessTokenExpiresAt = Number(result.expired);
   }
   requestSms(mobile: string) { return this.request(deviceRoute("sms"), { data: { data: { deviceId: this.deviceId }, iotData: { type: 9, mobile, iotAppId: this.appId }, timestamp: stamp() } }); }
   async smsLogin(mobile: string, smsCode: string) {
-    const result = await this.request(deviceRoute("login"), { data: { data: { appKey: this.appKey, appVersion: this.config.client.version, deviceId: this.deviceId, deviceName: "OpenHome", osVersion: "Cloudflare", platform: 2 }, iotData: { mobile, smsCode, iotAppId: this.appId, appVersion: this.config.client.version, deviceId: this.deviceId, loginType: 0 }, timestamp: stamp() } }) as { iotUserId?: string; userInfo?: { uid?: string; userId?: string; nickName?: string; nickname?: string; name?: string }; mdata?: { accessToken?: string; userInfo?: { uid?: string; nickName?: string; nickname?: string } } };
+    const result = await this.request(deviceRoute("login"), { data: { data: { appKey: this.appKey, appVersion: this.config.client.version, deviceId: this.deviceId, deviceName: "OpenHome", osVersion: "Cloudflare", platform: 2 }, iotData: { mobile, smsCode, iotAppId: this.appId, appVersion: this.config.client.version, deviceId: this.deviceId, loginType: 0 }, timestamp: stamp() } }) as { iotUserId?: string; userInfo?: { uid?: string; userId?: string; nickName?: string; nickname?: string; name?: string }; mdata?: { accessToken?: string; expired?: number; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number }; userInfo?: { uid?: string; nickName?: string; nickname?: string } }; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number } };
     const uid = result.userInfo?.uid || result.userInfo?.userId || result.iotUserId || result.mdata?.userInfo?.uid; const accessToken = result.mdata?.accessToken;
     const displayName = result.userInfo?.nickName || result.userInfo?.nickname || result.userInfo?.name || result.mdata?.userInfo?.nickName || result.mdata?.userInfo?.nickname || `${mobile.slice(0, 3)}****${mobile.slice(-4)}`;
-    if (!uid || !accessToken) throw new Error("OpenDevice login response did not contain a session"); return { uid: String(uid), accessToken: String(accessToken), deviceId: this.deviceId, displayName };
+    const tokenInfo = result.mdata?.tokenPwdInfo || result.tokenPwdInfo;
+    if (!uid || !accessToken) throw new Error("OpenLiving login response did not contain a session");
+    return { uid: String(uid), accessToken: String(accessToken), deviceId: this.deviceId, displayName, tokenPwd: tokenInfo?.tokenPwd, accessTokenExpiresAt: result.mdata?.expired };
   }
   listHomes() { return this.request(deviceRoute("homes"), { data: this.general() }); }
   listDevices(homeId: string) { return this.request(deviceRoute("devices"), { data: this.general({ homegroupId: homeId }) }); }
   async capabilities(homeId: string, applianceCode: string) {
     const mapping = await this.request(deviceRoute("templateMap"), { data: this.general({ homeGroupId: homeId, applianceCodes: [applianceCode], screenVersion: this.config.client.version, protocolVersion: 0, platform: "app", needOldTemplate: 1 }) }) as Array<{ currentUiTemplateId?: number | string; currentUiJsId?: number | string }>;
     const item = Array.isArray(mapping) ? mapping[0] : undefined;
-    if (!item) throw new Error("OpenDevice template mapping is unavailable");
+    if (!item) throw new Error("OpenLiving template mapping is unavailable");
     await this.request(deviceRoute("templateGet"), { data: this.general({ uiTemplateIds: item.currentUiTemplateId ? [Number(item.currentUiTemplateId)] : null, uiJsIds: item.currentUiJsId ? [Number(item.currentUiJsId)] : null, platform: "app" }) });
     return { programs: DRYER_PROGRAMS };
   }

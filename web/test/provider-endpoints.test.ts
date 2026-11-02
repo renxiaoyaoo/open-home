@@ -11,7 +11,7 @@ process.env.OPENHOME_PROVIDER_BUNDLE = JSON.stringify({ schemaVersion: 1, access
 }, device: {
   baseUrl: "https://device.provider.example", credentials: { appId: "test", appKey: "test", iotKey: "test", hmacKey: "test", deviceId: "test" },
   client: { version: "1", secretVersion: "1", platformId: "1", clientType: "1", language: "en", source: "test", module: "test" },
-  routes: { sms: "/account/sms", login: "/account/login", homes: "/homes", devices: "/devices", templateMap: "/templates/map", templateGet: "/templates/get", properties: "/properties/{deviceId}", action: "/actions/{action}/{deviceId}" },
+  routes: { sms: "/account/sms", login: "/account/login", refresh: "/account/refresh", homes: "/homes", devices: "/devices", templateMap: "/templates/map", templateGet: "/templates/get", properties: "/properties/{deviceId}", action: "/actions/{action}/{deviceId}" },
   properties: { program: "program", power: "power", parameters: { temperature_level: { property: "temperature" }, dry_level: { property: "dryness" }, dry_temp: { property: "sanitize" }, crease_resist_old: { property: "crease", type: "boolean" }, dry_time_new: { property: "time" } } }, actions: { start: "start", pause: "pause", schedule: "schedule", cancelSchedule: "cancel" },
 } });
 process.env.OPENHOME_SESSION_ENCRYPTION_KEY = "00".repeat(32);
@@ -55,6 +55,26 @@ test("maps only model-verified dryer parameters into one property update", async
   } finally { globalThis.fetch = originalFetch; }
   assert.deepEqual(JSON.parse(String(captured?.body)), { program: 43, temperature: 2, dryness: 3, sanitize: 1, crease: true });
   assert.throws(() => new OpenDeviceProvider().configureProgram("dryer", 43, { dry_level: 99 }));
+});
+
+test("refreshes an expired appliance session and retries the original request once", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), headers: init?.headers as Record<string, string>, body: JSON.parse(String(init?.body || "{}")) });
+    if (calls.length === 1) return Response.json({ code: 40002, msg: "token expired" });
+    if (calls.length === 2) return Response.json({ code: 0, data: { accessToken: "fresh-token", expired: 99 } });
+    return Response.json({ code: 0, data: { homeList: [] } });
+  };
+  const session = { uid: "user", accessToken: "old-token", deviceId: "client", tokenPwd: "refresh-secret", accessTokenExpiresAt: undefined as number | undefined };
+  try { await new OpenDeviceProvider(session).listHomes(); } finally { globalThis.fetch = originalFetch; }
+  assert.equal(calls.length, 3);
+  assert.match(calls[1].url, /\/account\/refresh$/);
+  assert.equal(calls[1].headers.userId, "user");
+  assert.deepEqual(calls[1].body, { timestamp: calls[1].body.timestamp, data: { tokenPwd: "refresh-secret", clientType: 1, platform: 2, iotAppId: "test", deviceId: "client" } });
+  assert.equal(calls[2].headers.accessToken, "fresh-token");
+  assert.equal(session.accessToken, "fresh-token");
+  assert.equal(session.accessTokenExpiresAt, 99);
 });
 
 test("matches the provider app's literal sessionId URL concatenation", () => {

@@ -5,7 +5,7 @@ Web shell / native OpenHome clients
           |
  deployment access boundary (for example Cloudflare Zero Trust)
           |
- module use cases (OpenGate, OpenDevice, future modules)
+ module use cases (OpenGate, OpenLiving, future modules)
           |                         |
  stable domain models       shared security/error primitives
           \_________________________/
@@ -49,7 +49,7 @@ will require revocable per-device credentials before release.
 
 Sessions are encrypted with AES-256-GCM. Mobile numbers are retained only as an
 HMAC fingerprint and a display mask. Removing an account deletes its encrypted
-session through a foreign-key cascade. OpenGate, OpenDevice, and OpenLock all
+session through a foreign-key cascade. OpenGate, OpenLiving, and OpenLock all
 read these server-held sessions, so browsers do not own upstream login state.
 The encryption key is deployment identity and must survive ordinary releases; access-boundary cookies
 remain hostname-scoped and require an explicit migration or reauthentication
