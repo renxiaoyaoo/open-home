@@ -63,7 +63,7 @@ test("normalizes the official vehicle-state and opening codes", () => {
     forehold: 1, skylight: 2, time: 1_800_000_000,
   });
   assert.equal(summary.powerState, "on");
-  assert.equal(summary.securityState, "armed");
+  assert.equal(summary.securityState, "setting");
   assert.equal(summary.driveMode, "electric");
   assert.equal(summary.okIndicator, true);
   assert.equal(summary.engineCoolantC, 82);
@@ -96,12 +96,13 @@ test("normalizes current and cumulative energy readings", () => {
   assert.deepEqual(energy.recentTrend, []);
 });
 
-test("drops provider sentinel values from charging state", () => {
-  const summary = normalizeVehicleSummary({ vin: "TEST-VEHICLE", enduranceMileage: -999, signalStrength: 65535, chargingPower: "-999", remainingHours: -999, remainingMinutes: -999 });
+test("drops provider sentinel values from vehicle state", () => {
+  const summary = normalizeVehicleSummary({ vin: "TEST-VEHICLE", enduranceMileage: -999, signalStrength: 65535, chargingPower: "-999", remainingHours: -999, remainingMinutes: -999, ect: 0, ectValue: -1 });
   assert.equal(summary.estimatedRangeKm, undefined);
   assert.equal(summary.signalStrength, undefined);
   assert.equal(summary.chargingPowerKw, undefined);
   assert.equal(summary.remainingChargeMinutes, undefined);
+  assert.equal(summary.engineCoolantC, undefined);
 });
 
 test("rejects a response without a stable vehicle identity", () => {

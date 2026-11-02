@@ -17,7 +17,7 @@ export type VehicleSummary = {
   speedKph?: number;
   signalStrength?: number;
   online?: boolean;
-  securityState?: "normal" | "armed" | "alarm" | "unknown";
+  securityState?: "normal" | "setting" | "active" | "unknown";
   driveMode?: "electric" | "hybrid" | "unknown";
   okIndicator?: boolean;
   engineCoolantC?: number;
@@ -140,10 +140,10 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     speedKph: nonnegative(raw.speed),
     signalStrength: finite(raw.signalStrength),
     online: finite(raw.onlineStatus) === 1,
-    securityState: vehicleState === 0 ? "normal" : vehicleState === 1 ? "armed" : vehicleState === 2 ? "alarm" : "unknown",
+    securityState: vehicleState === 0 ? "normal" : vehicleState === 1 ? "setting" : vehicleState === 2 ? "active" : "unknown",
     driveMode: driveMode === 0 ? "hybrid" : driveMode === 1 ? "electric" : "unknown",
     okIndicator: flag(raw.okLight, 1),
-    engineCoolantC: finite(raw.ect) === 0 ? finite(raw.ectValue) : undefined,
+    engineCoolantC: finite(raw.ect) === 0 && finite(raw.ectValue) !== -1 ? finite(raw.ectValue) : undefined,
     doorsOpen: { frontLeft: flag(raw.leftFrontDoor, 1), frontRight: flag(raw.rightFrontDoor, 1), rearLeft: flag(raw.leftRearDoor, 1), rearRight: flag(raw.rightRearDoor, 1) },
     doorsUnlocked: { frontLeft: flag(raw.leftFrontDoorLock, 1), frontRight: flag(raw.rightFrontDoorLock, 1), rearLeft: flag(raw.leftRearDoorLock, 1), rearRight: flag(raw.rightRearDoorLock, 1) },
     windowsOpen: { frontLeft: flag(raw.leftFrontWindow, 2), frontRight: flag(raw.rightFrontWindow, 2), rearLeft: flag(raw.leftRearWindow, 2), rearRight: flag(raw.rightRearWindow, 2) },
