@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# Node 24 requires this opt-in for fetch() to honor HTTP(S)_PROXY.
+export NODE_USE_ENV_PROXY="${NODE_USE_ENV_PROXY:-1}"
+
 deploy_root=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 web_root=$(CDPATH= cd -- "$deploy_root/../../web" && pwd)
 cd "$web_root"
