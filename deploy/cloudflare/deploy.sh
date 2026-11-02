@@ -9,4 +9,5 @@ npm test
 npm run lint
 npm run build
 ./node_modules/.bin/wrangler d1 migrations apply "${OPENHOME_CF_DATABASE_NAME:-open-home}" --remote --config wrangler.production.jsonc
+node "$deploy_root/sync-secrets.mjs" "" wrangler.production.jsonc
 ./node_modules/.bin/wrangler deploy --config wrangler.production.jsonc

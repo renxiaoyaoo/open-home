@@ -7,13 +7,13 @@ const wranglerConfig = process.argv[3] || "wrangler.production.jsonc";
 const webRoot = resolve(import.meta.dirname, "../../web");
 const wrangler = resolve(webRoot, "node_modules/.bin/wrangler");
 const config = resolve(webRoot, wranglerConfig);
-if (!envFile) throw new Error("Usage: node sync-secrets.mjs <private-env-file> [wrangler-config]");
-
-const values = new Map();
-for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
-  if (!line || line.startsWith("#")) continue;
-  const separator = line.indexOf("=");
-  if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
+const values = new Map(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
+if (envFile) {
+  for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) continue;
+    const separator = line.indexOf("=");
+    if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
+  }
 }
 
 const url = new URL(values.get("OPENHOME_PROVIDER_BUNDLE_URL") || "");
