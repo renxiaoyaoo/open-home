@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeVehicleEnergy, normalizeVehicleSummary } from "../lib/openauto.ts";
+import { normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary } from "../lib/openauto.ts";
 
 test("normalizes a vehicle-condition response without retaining provider fields", () => {
   const summary = normalizeVehicleSummary({
@@ -94,6 +94,25 @@ test("normalizes current and cumulative energy readings", () => {
   assert.equal(energy.cumulativeElectricityKwhPer100Km, 15.6);
   assert.equal(energy.cumulativeFuelLitresPer100Km, 4.1);
   assert.deepEqual(energy.recentTrend, []);
+});
+
+test("normalizes the official detailed energy responses", () => {
+  const energy = normalizeDetailedVehicleEnergy({
+    dkm: "50", avgFullCon: "3.8", avgEvCon: "12.4", avgOilCon: "1.7", mxElect: "6.2", mxOil: "0.8", cost: "9.6",
+    driveConP: 52, acConP: 18, elecConP: 11, restConP: 19, energyDate: "2026-11-02 20:10:00",
+  }, {
+    firstRecentList: [{ lastFee: "4.6" }], selfList: [{ date: "2026-11-01", lastFee: "4.1" }, { date: "2026-11-02", lastFee: "3.8" }],
+    sumOilData: { fee: "4.3", elect: "13.2", fuel: "2.1", cost: "0.19" },
+  }, 24000);
+  assert.equal(energy.costYuan, 9.6);
+  assert.deepEqual(energy.breakdown, { propulsionPercent: 52, climatePercent: 18, electricalPercent: 11, otherPercent: 19 });
+  assert.deepEqual(energy.recentTrend, [
+    { date: "2026-11-01", equivalentFuelLitresPer100Km: 4.1, peerAverageLitresPer100Km: 4.6 },
+    { date: "2026-11-02", equivalentFuelLitresPer100Km: 3.8, peerAverageLitresPer100Km: 4.6 },
+  ]);
+  assert.equal(energy.cumulativeEquivalentFuelLitresPer100Km, 4.3);
+  assert.equal(energy.costPerKmYuan, 0.19);
+  assert.equal(energy.totalDistanceKm, 24000);
 });
 
 test("drops provider sentinel values from vehicle state", () => {

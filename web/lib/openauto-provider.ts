@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { normalizeVehicleEnergy, normalizeVehicleSummary, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
+import { normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
 import { autoRoute, providerBundle } from "./provider-bundle.ts";
 import { decryptEnvelope, encryptEnvelope } from "./openauto-codec.js";
 
@@ -54,7 +54,19 @@ export class DirectOpenAutoProvider {
   private async rawSummary(vehicleId: string) {
     const inner = { ...this.inner(), energyType: this.client("energyType", "0"), tboxVersion: this.client("tboxVersion", "3"), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("latestCondition"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆状态加载失败")); return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
+  private async energyRequest(route: "recentEnergy" | "historicalEnergy", vehicleId: string, vehicle: Json, extra: Json = {}) {
+    const inner = { ...this.inner(), vin: vehicleId, autoType: String(vehicle.autoType || this.client("autoType")), tboxVersion: String(vehicle.tboxVersion || this.client("tboxVersion", "3")), ...extra };
+    const built = this.tokenRequest(inner); const response = await this.post(autoRoute(route), built.request);
+    if (String(response.code) !== "0") throw new Error(String(response.message || "能耗数据加载失败"));
+    return aesDecrypt(String(response.respondData || ""), built.contentKey);
+  }
   async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
-    const raw = await this.rawSummary(vehicleId); return { summary: normalizeVehicleSummary(raw, vehicleId), energy: normalizeVehicleEnergy(raw) };
+    const raw = await this.rawSummary(vehicleId); const summary = normalizeVehicleSummary(raw, vehicleId);
+    try {
+      const [recent, historical] = await Promise.all([this.energyRequest("recentEnergy", vehicleId, raw, { type: "NEAREST_KM" }), this.energyRequest("historicalEnergy", vehicleId, raw)]);
+      return { summary, energy: normalizeDetailedVehicleEnergy(recent, historical, summary.odometerKm) };
+    } catch {
+      return { summary, energy: normalizeVehicleEnergy(raw) };
+    }
   }
 }

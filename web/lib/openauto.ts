@@ -173,3 +173,25 @@ export function normalizeVehicleEnergy(raw: RawVehicle): VehicleEnergy {
     updatedAt: timestamp(raw.updatedAt) || timestamp(raw.updateTime) || timestamp(raw.time),
   };
 }
+
+export function normalizeDetailedVehicleEnergy(recent: RawVehicle, historical: RawVehicle, totalDistanceKm?: number): VehicleEnergy {
+  const sum = historical.sumOilData && typeof historical.sumOilData === "object" ? historical.sumOilData as RawVehicle : {};
+  const trend = Array.isArray(historical.selfList) ? historical.selfList : [];
+  const peer = Array.isArray(historical.firstRecentList) ? historical.firstRecentList[0] as RawVehicle | undefined : undefined;
+  const breakdown = {
+    propulsionPercent: percent(recent.driveConP), climatePercent: percent(recent.acConP),
+    electricalPercent: percent(recent.elecConP), otherPercent: percent(recent.restConP),
+  };
+  return {
+    recentDistanceKm: finite(recent.dkm) ?? 50,
+    equivalentFuelLitresPer100Km: finite(recent.avgFullCon), electricityKwhPer100Km: finite(recent.avgEvCon), fuelLitresPer100Km: finite(recent.avgOilCon),
+    electricityKwh: nonnegative(recent.mxElect), fuelLitres: nonnegative(recent.mxOil), costYuan: nonnegative(recent.cost),
+    breakdown: Object.values(breakdown).some((value) => value !== undefined) ? breakdown : undefined,
+    recentTrend: trend.map((item) => item && typeof item === "object" ? {
+      date: text((item as RawVehicle).date) || "", equivalentFuelLitresPer100Km: finite((item as RawVehicle).lastFee), peerAverageLitresPer100Km: finite(peer?.lastFee),
+    } : { date: "" }).filter((item) => item.date),
+    totalDistanceKm,
+    cumulativeEquivalentFuelLitresPer100Km: finite(sum.fee), cumulativeElectricityKwhPer100Km: finite(sum.elect), cumulativeFuelLitresPer100Km: finite(sum.fuel),
+    costPerKmYuan: nonnegative(sum.cost), updatedAt: timestamp(recent.energyDate),
+  };
+}
