@@ -19,10 +19,10 @@ export class OpenDeviceProvider {
 
   constructor(session?: OpenDeviceSession) { this.session = session; this.deviceId = session?.deviceId || this.config.credentials.deviceId; this.uid = session?.uid; this.accessToken = session?.accessToken; }
   private general(extra: Record<string, unknown> = {}) { const client = this.config.client; return { src: this.appId, format: "2", stamp: stamp(), platformId: client.platformId, deviceId: this.deviceId, reqId: randomBytes(16).toString("hex"), uid: this.uid, clientType: client.clientType, appId: this.appId, language: client.language, ...extra }; }
-  private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string>; refresh?: boolean } = {}): Promise<unknown> {
+  private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string>; refresh?: boolean; authenticated?: boolean } = {}): Promise<unknown> {
     const method = options.method || "POST"; const body = options.data === undefined ? "" : JSON.stringify(options.data); const nonce = String(Math.floor(Date.now() / 1000));
     const headers: Record<string, string> = { "content-type": "application/json; charset=utf-8", version: this.config.client.version, secretVersion: this.config.client.secretVersion, random: nonce, sign: createHmac("sha256", this.hmacKey).update(`${this.iotKey}${body}${nonce}`).digest("hex"), ...options.headers };
-    if (this.uid) headers.uid = this.uid; if (this.accessToken) headers.accessToken = this.accessToken;
+    if (options.authenticated !== false) { if (this.uid) headers.uid = this.uid; if (this.accessToken) headers.accessToken = this.accessToken; }
     const response = await fetch(`${this.url}${alias}${options.query || ""}`, { method, headers, body: method === "GET" ? undefined : body, signal: AbortSignal.timeout(12_000) });
     const payload = await response.json().catch(() => ({ code: response.status, msg: "invalid response" })) as { code?: string | number; msg?: string; data?: unknown };
     if (!response.ok || String(payload.code) !== "0") {
@@ -37,9 +37,10 @@ export class OpenDeviceProvider {
   private async refreshAccessToken() {
     if (!this.uid || !this.session?.tokenPwd) throw new Error("OpenLiving session cannot be refreshed");
     const result = await this.request(deviceRoute("refresh"), {
-      data: { timestamp: stamp(), data: { tokenPwd: this.session.tokenPwd, clientType: 1, platform: 2, iotAppId: this.appId, deviceId: this.deviceId } },
+      data: { timestamp: stamp(), data: { tokenPwd: this.session.tokenPwd, rule: 1, platform: 2, iotAppId: this.appId, deviceId: this.deviceId } },
       headers: { userId: this.uid },
       refresh: false,
+      authenticated: false,
     }) as { accessToken?: string; expired?: number };
     if (!result.accessToken) throw new Error("OpenLiving session refresh did not return a token");
     this.accessToken = result.accessToken;

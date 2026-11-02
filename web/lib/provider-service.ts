@@ -1,5 +1,5 @@
 import { loadCentralSession, persistCentralSession, saveCentralSession, type CentralSession } from "./central";
-import { communityCodes, communityIds, dedupeDoors, deviceId, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider";
+import { communityCodes, communityIds, communityNames, dedupeDoors, deviceId, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider";
 import { accessRoute } from "./provider-bundle.ts";
 import { personalDisplayName } from "./account-name";
 
@@ -18,7 +18,7 @@ export async function centralDoors(accountId: string) {
   const options = { sessionId: session.sessionId, signingToken: session.signingToken, openId: session.openId, signing: "mobile-body" as const, context: session.context };
   const communities = await providerPost("mobile", accessRoute("communities"), { method: "communityInfo" }, { ...options, encoding: "json" });
   if (!isSuccess(communities)) throw new Error(upstreamMessage(communities, "小区查询失败"));
-  const codes = communityCodes(communities.data); const doors = [];
+  const codes = communityCodes(communities.data); const names = communityNames(communities.data); const doors = [];
   for (const communityId of communityIds(communities.data).slice(0, 20)) {
     let home: Awaited<ReturnType<typeof providerPost>> | null = null;
     try {
@@ -26,7 +26,7 @@ export async function centralDoors(accountId: string) {
     } catch {
       // The complete list remains usable when the home-list request is unavailable.
     }
-    const featured = home && isSuccess(home) ? normalizeDoors(home.data, communityId, codes.get(communityId)) : [];
+    const featured = home && isSuccess(home) ? normalizeDoors(home.data, communityId, codes.get(communityId), names.get(communityId)) : [];
     const featuredIds = new Set(featured.map((door) => `${door.communityId}:${door.doorControlId}`));
     const featuredOrder = new Map(featured.map((door, index) => [`${door.communityId}:${door.doorControlId}`, index]));
     let all: Awaited<ReturnType<typeof providerPost>> | null = null;
@@ -36,7 +36,7 @@ export async function centralDoors(accountId: string) {
       // Fall through to the already verified home-list endpoint below.
     }
     if (all && isSuccess(all)) {
-      doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId)).map((door) => ({
+      doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId), names.get(communityId)).map((door) => ({
         ...door,
         providerFeatured: featuredIds.has(`${door.communityId}:${door.doorControlId}`),
         providerOrder: featuredOrder.get(`${door.communityId}:${door.doorControlId}`),

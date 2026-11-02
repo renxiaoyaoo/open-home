@@ -275,7 +275,16 @@ export function communityCodes(payload: unknown): Map<number, string> {
   });
   return found;
 }
-export function normalizeDoors(payload: unknown, fallbackCommunityId: number, communityCode?: string): Door[] {
+export function communityNames(payload: unknown): Map<number, string> {
+  const found = new Map<number, string>();
+  walk(payload, (item) => {
+    const id = Number(item.communityId);
+    const name = item.communityName ?? item.commName;
+    if (Number.isSafeInteger(id) && id > 0 && typeof name === "string" && name.trim()) found.set(id, name.trim());
+  });
+  return found;
+}
+export function normalizeDoors(payload: unknown, fallbackCommunityId: number, communityCode?: string, fallbackCommunityName?: string): Door[] {
   const found = new Map<string, Door>();
   walk(payload, (item) => {
     const doorControlId = Number(item.doorControlId ?? item.doorId);
@@ -283,7 +292,7 @@ export function normalizeDoors(payload: unknown, fallbackCommunityId: number, co
     if (!Number.isSafeInteger(doorControlId) || doorControlId <= 0 || !Number.isSafeInteger(communityId) || communityId <= 0) return;
     const name = String(item.customDoorControlName ?? item.customName ?? item.doorControlName ?? item.doorName ?? item.name ?? item.unitName ?? item.buildingName ?? `门禁 ${doorControlId}`);
     const deviceModel = typeof item.deviceModel === "string" ? item.deviceModel : undefined;
-    const communityName = typeof item.communityName === "string" ? item.communityName : undefined;
+    const communityName = typeof item.communityName === "string" && item.communityName.trim() ? item.communityName.trim() : fallbackCommunityName;
     const mac = typeof item.mac === "string" ? item.mac : typeof item.macAddress === "string" ? item.macAddress : undefined;
     found.set(`${communityId}:${doorControlId}`, {
       doorControlId, communityId, name,

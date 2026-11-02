@@ -18,7 +18,7 @@ process.env.OPENHOME_SESSION_ENCRYPTION_KEY = "00".repeat(32);
 const { OpenDeviceProvider } = await import("../lib/opendevice-provider.ts");
 const { isProviderBundle } = await import("../lib/provider-bundle.ts");
 const { createDoorHandle, readDoorHandle } = await import("../lib/door-handle.ts");
-const { UpstreamError, absorbSetCookies, appendRawSessionId, communityCodes, communityIds, cookieHeader, dedupeDoors, doorPassword, doorSortBody, encryptMobile, isAuthenticationExpired, isSmsAccepted, isSuccess, loginCredential, normalizeDoors, openDoorBody, parseUpstreamCookies, providerPost, providerUrl, serializeUpstreamCookies, signHeaders, signMobileBody, supportsDoorPassword } = await import("../lib/provider.ts");
+const { UpstreamError, absorbSetCookies, appendRawSessionId, communityCodes, communityIds, communityNames, cookieHeader, dedupeDoors, doorPassword, doorSortBody, encryptMobile, isAuthenticationExpired, isSmsAccepted, isSuccess, loginCredential, normalizeDoors, openDoorBody, parseUpstreamCookies, providerPost, providerUrl, serializeUpstreamCookies, signHeaders, signMobileBody, supportsDoorPassword } = await import("../lib/provider.ts");
 const { publicDoor } = await import("../lib/public-door.ts");
 const { personalDisplayName } = await import("../lib/account-name.ts");
 
@@ -71,7 +71,9 @@ test("refreshes an expired appliance session and retries the original request on
   assert.equal(calls.length, 3);
   assert.match(calls[1].url, /\/account\/refresh$/);
   assert.equal(calls[1].headers.userId, "user");
-  assert.deepEqual(calls[1].body, { timestamp: calls[1].body.timestamp, data: { tokenPwd: "refresh-secret", clientType: 1, platform: 2, iotAppId: "test", deviceId: "client" } });
+  assert.equal(calls[1].headers.accessToken, undefined);
+  assert.equal(calls[1].headers.uid, undefined);
+  assert.deepEqual(calls[1].body, { timestamp: calls[1].body.timestamp, data: { tokenPwd: "refresh-secret", rule: 1, platform: 2, iotAppId: "test", deviceId: "client" } });
   assert.equal(calls[2].headers.accessToken, "fresh-token");
   assert.equal(session.accessToken, "fresh-token");
   assert.equal(session.accessTokenExpiresAt, 99);
@@ -295,8 +297,9 @@ test("normalizes and deduplicates only real door records", () => {
 
 test("extracts community codes and preserves password-capable door metadata", () => {
   assert.deepEqual([...communityCodes({ data: [{ communityId: 8, communityCode: "CQ001" }] })], [[8, "CQ001"]]);
-  assert.deepEqual(normalizeDoors([{ doorControlId: 12, macAddress: "AA:BB", deviceModel: "model-with-code" }], 8, "CQ001")[0], {
-    doorControlId: 12, communityId: 8, name: "门禁 12", communityCode: "CQ001", mac: "AA:BB", deviceModel: "model-with-code", passwordSupported: true,
+  assert.deepEqual([...communityNames({ data: [{ communityId: 8, communityName: "测试小区" }] })], [[8, "测试小区"]]);
+  assert.deepEqual(normalizeDoors([{ doorControlId: 12, macAddress: "AA:BB", deviceModel: "model-with-code" }], 8, "CQ001", "测试小区")[0], {
+    doorControlId: 12, communityId: 8, name: "门禁 12", communityName: "测试小区", communityCode: "CQ001", mac: "AA:BB", deviceModel: "model-with-code", passwordSupported: true,
   });
 });
 
