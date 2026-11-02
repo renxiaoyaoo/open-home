@@ -63,7 +63,7 @@ type RawVehicle = Record<string, unknown>;
 
 function finite(value: unknown) {
   const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
-  return Number.isFinite(number) ? number : undefined;
+  return Number.isFinite(number) && ![-999, -9999, 65535].includes(number) ? number : undefined;
 }
 
 function nonnegative(value: unknown) {

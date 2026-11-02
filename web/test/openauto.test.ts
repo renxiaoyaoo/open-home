@@ -67,7 +67,9 @@ test("normalizes current and cumulative energy readings", () => {
 });
 
 test("drops provider sentinel values from charging state", () => {
-  const summary = normalizeVehicleSummary({ vin: "TEST-VEHICLE", chargingPower: "-999", remainingHours: -999, remainingMinutes: -999 });
+  const summary = normalizeVehicleSummary({ vin: "TEST-VEHICLE", enduranceMileage: -999, signalStrength: 65535, chargingPower: "-999", remainingHours: -999, remainingMinutes: -999 });
+  assert.equal(summary.estimatedRangeKm, undefined);
+  assert.equal(summary.signalStrength, undefined);
   assert.equal(summary.chargingPowerKw, undefined);
   assert.equal(summary.remainingChargeMinutes, undefined);
 });
