@@ -37,6 +37,8 @@ test("normalizes a vehicle-condition response without retaining provider fields"
     chargingPowerKw: 6.5,
     remainingChargeMinutes: 85,
     odometerKm: 12000.5,
+    evMileageKm: undefined,
+    hevMileageKm: undefined,
     speedKph: 0,
     signalStrength: 4,
     online: true,
@@ -48,7 +50,11 @@ test("normalizes a vehicle-condition response without retaining provider fields"
     doorsUnlocked: { frontLeft: undefined, frontRight: undefined, rearLeft: undefined, rearRight: undefined },
     windowsOpen: { frontLeft: undefined, frontRight: undefined, rearLeft: undefined, rearRight: undefined },
     hoodOpen: undefined,
+    trunkOpen: undefined,
     skylightOpen: undefined,
+    chargingPortLeftOpen: undefined,
+    chargingPortRightOpen: undefined,
+    cabinTemperatureC: undefined,
     tirePressureKpa: { frontLeft: 250, frontRight: 251, rearLeft: 248, rearRight: 249 },
     updatedAt: undefined,
   });
@@ -60,7 +66,8 @@ test("normalizes the official vehicle-state and opening codes", () => {
     leftFrontDoor: 1, rightFrontDoor: 0, leftRearDoor: 0, rightRearDoor: 1,
     leftFrontDoorLock: 1, rightFrontDoorLock: 0, leftRearDoorLock: 0, rightRearDoorLock: 0,
     leftFrontWindow: 2, rightFrontWindow: 0, leftRearWindow: 0, rightRearWindow: 2,
-    forehold: 1, skylight: 2, time: 1_800_000_000,
+    forehold: 1, trunk: 1, skylight: 2, chargingCoverLeft: 1, chargingCoverRight: 0, carInnerTemperature: 17,
+    totalMileage: 8445, hevMileage: 3809, time: 1_800_000_000,
   });
   assert.equal(summary.powerState, "on");
   assert.equal(summary.securityState, "setting");
@@ -71,7 +78,13 @@ test("normalizes the official vehicle-state and opening codes", () => {
   assert.deepEqual(summary.doorsUnlocked, { frontLeft: true, frontRight: false, rearLeft: false, rearRight: false });
   assert.deepEqual(summary.windowsOpen, { frontLeft: true, frontRight: false, rearLeft: false, rearRight: true });
   assert.equal(summary.hoodOpen, true);
+  assert.equal(summary.trunkOpen, true);
   assert.equal(summary.skylightOpen, true);
+  assert.equal(summary.chargingPortLeftOpen, true);
+  assert.equal(summary.chargingPortRightOpen, false);
+  assert.equal(summary.cabinTemperatureC, 17);
+  assert.equal(summary.evMileageKm, 4636);
+  assert.equal(summary.hevMileageKm, 3809);
   assert.match(summary.updatedAt || "", /^2027-/);
 });
 

@@ -14,6 +14,8 @@ export type VehicleSummary = {
   chargingPowerKw?: number;
   remainingChargeMinutes?: number;
   odometerKm?: number;
+  evMileageKm?: number;
+  hevMileageKm?: number;
   speedKph?: number;
   signalStrength?: number;
   online?: boolean;
@@ -25,7 +27,11 @@ export type VehicleSummary = {
   doorsUnlocked?: VehicleCornerState;
   windowsOpen?: VehicleCornerState;
   hoodOpen?: boolean;
+  trunkOpen?: boolean;
   skylightOpen?: boolean;
+  chargingPortLeftOpen?: boolean;
+  chargingPortRightOpen?: boolean;
+  cabinTemperatureC?: number;
   tirePressureKpa?: { frontLeft?: number; frontRight?: number; rearLeft?: number; rearRight?: number };
   updatedAt?: string;
 };
@@ -46,6 +52,7 @@ export type EnergyTrendPoint = {
 };
 
 export type VehicleEnergy = {
+  rankPercent?: number;
   recentDistanceKm?: number;
   equivalentFuelLitresPer100Km?: number;
   electricityKwhPer100Km?: number;
@@ -124,6 +131,9 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
   const powerGear = finite(raw.powerGear);
   const vehicleState = finite(raw.vehicleState);
   const driveMode = finite(raw.pwr);
+  const totalMileage = nonnegative(raw.totalMileage);
+  const hevMileage = nonnegative(raw.hevMileage);
+  const reportedEvMileage = nonnegative(raw.evMileage);
   return {
     id,
     name: text(raw.name) || text(raw.vehicleName) || text(raw.modelName) || "车辆",
@@ -136,7 +146,9 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     chargingState: chargingState(raw.chargingState),
     chargingPowerKw: nonnegative(raw.chargingPower),
     remainingChargeMinutes,
-    odometerKm: nonnegative(raw.totalMileage),
+    odometerKm: totalMileage,
+    evMileageKm: reportedEvMileage ?? (totalMileage !== undefined && hevMileage !== undefined && hevMileage <= totalMileage ? totalMileage - hevMileage : undefined),
+    hevMileageKm: hevMileage,
     speedKph: nonnegative(raw.speed),
     signalStrength: finite(raw.signalStrength),
     online: finite(raw.onlineStatus) === 1,
@@ -148,7 +160,11 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     doorsUnlocked: { frontLeft: flag(raw.leftFrontDoorLock, 1), frontRight: flag(raw.rightFrontDoorLock, 1), rearLeft: flag(raw.leftRearDoorLock, 1), rearRight: flag(raw.rightRearDoorLock, 1) },
     windowsOpen: { frontLeft: flag(raw.leftFrontWindow, 2), frontRight: flag(raw.rightFrontWindow, 2), rearLeft: flag(raw.leftRearWindow, 2), rearRight: flag(raw.rightRearWindow, 2) },
     hoodOpen: flag(raw.forehold, 1),
+    trunkOpen: flag(raw.trunk, 1),
     skylightOpen: flag(raw.skylight, 2),
+    chargingPortLeftOpen: flag(raw.chargingCoverLeft, 1),
+    chargingPortRightOpen: flag(raw.chargingCoverRight, 1),
+    cabinTemperatureC: finite(raw.carInnerTemperature) ?? finite(raw.tempInCar) ?? finite(raw.insideTemperature),
     tirePressureKpa: {
       frontLeft: nonnegative(raw.leftFrontTirepressure), frontRight: nonnegative(raw.rightFrontTirepressure),
       rearLeft: nonnegative(raw.leftRearTirepressure), rearRight: nonnegative(raw.rightRearTirepressure),
@@ -159,6 +175,7 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
 
 export function normalizeVehicleEnergy(raw: RawVehicle): VehicleEnergy {
   return {
+    rankPercent: percent(raw.rankPercent) ?? percent(raw.rank),
     recentDistanceKm: finite(raw.recentDistanceKm) ?? finite(raw.recent50kmMileage) ?? (raw.recentlyFiftyAverageEle !== undefined || raw.recentlyFiftyAverageFuel !== undefined ? 50 : undefined),
     equivalentFuelLitresPer100Km: finite(raw.equivalentFuelLitresPer100Km) ?? finite(raw.recent50kmEnergy) ?? finite(raw.nearestEnergyConsumption) ?? finite(raw.energyConsumption),
     electricityKwhPer100Km: finite(raw.electricityKwhPer100Km) ?? finite(raw.recent50kmElecAverage) ?? finite(raw.recentlyFiftyAverageEle),
@@ -183,6 +200,7 @@ export function normalizeDetailedVehicleEnergy(recent: RawVehicle, historical: R
     electricalPercent: percent(recent.elecConP), otherPercent: percent(recent.restConP),
   };
   return {
+    rankPercent: percent(recent.rankPercent) ?? percent(recent.rank),
     recentDistanceKm: finite(recent.dkm) ?? 50,
     equivalentFuelLitresPer100Km: finite(recent.avgFullCon), electricityKwhPer100Km: finite(recent.avgEvCon), fuelLitresPer100Km: finite(recent.avgOilCon),
     electricityKwh: nonnegative(recent.mxElect), fuelLitres: nonnegative(recent.mxOil), costYuan: nonnegative(recent.cost),
