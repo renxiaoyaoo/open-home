@@ -65,12 +65,14 @@ export class DirectOpenAutoProvider {
     return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
   async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
-    const raw = await this.rawSummary(vehicleId); const summary = normalizeVehicleSummary(raw, vehicleId);
+    const raw = await this.rawSummary(vehicleId); const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
     try {
       const [recent, historical] = await Promise.all([this.energyRequest("recentEnergy", vehicleId, raw, { type: "NEAREST_KM" }), this.energyRequest("historicalEnergy", vehicleId, raw)]);
-      return { summary, energy: normalizeDetailedVehicleEnergy(recent, historical, summary.odometerKm) };
+      const detailed = normalizeDetailedVehicleEnergy(recent, historical, summary.odometerKm);
+      const values = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
+      return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
     } catch {
-      return { summary, energy: normalizeVehicleEnergy(raw) };
+      return { summary, energy: fallbackEnergy };
     }
   }
 }

@@ -137,6 +137,17 @@ test("drops provider sentinel values from vehicle state", () => {
   assert.equal(summary.engineCoolantC, undefined);
 });
 
+test("derives combined range and omits empty energy readings", () => {
+  const summary = normalizeVehicleSummary({ vin: "TEST-VEHICLE", evEndurance: 78, oilEndurance: 698 });
+  assert.equal(summary.estimatedRangeKm, 776);
+  const energy = normalizeDetailedVehicleEnergy({ avgFullCon: 0, avgEvCon: "0", avgOilCon: 0, mxElect: 0, mxOil: 0, cost: 0 }, { sumOilData: { fee: 0, elect: 0, fuel: 0, cost: 0 } }, 8445);
+  assert.equal(energy.equivalentFuelLitresPer100Km, undefined);
+  assert.equal(energy.electricityKwhPer100Km, undefined);
+  assert.equal(energy.fuelLitresPer100Km, undefined);
+  assert.equal(energy.costYuan, undefined);
+  assert.equal(energy.totalDistanceKm, 8445);
+});
+
 test("rejects a response without a stable vehicle identity", () => {
   assert.throws(() => normalizeVehicleSummary({ elecPercent: 50 }), /identifier/i);
 });
