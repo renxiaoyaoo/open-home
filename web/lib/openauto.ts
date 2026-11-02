@@ -104,7 +104,7 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
 export function normalizeVehicleEnergy(raw: RawVehicle): VehicleEnergy {
   return {
     recentDistanceKm: finite(raw.recentDistanceKm) ?? finite(raw.recent50kmMileage),
-    equivalentFuelLitresPer100Km: finite(raw.equivalentFuelLitresPer100Km) ?? finite(raw.recent50kmEnergy),
+    equivalentFuelLitresPer100Km: finite(raw.equivalentFuelLitresPer100Km) ?? finite(raw.recent50kmEnergy) ?? finite(raw.nearestEnergyConsumption),
     electricityKwhPer100Km: finite(raw.electricityKwhPer100Km) ?? finite(raw.recent50kmElecAverage),
     fuelLitresPer100Km: finite(raw.fuelLitresPer100Km) ?? finite(raw.recent50kmOilAverage),
     totalDistanceKm: finite(raw.totalDistanceKm) ?? finite(raw.totalMileage),

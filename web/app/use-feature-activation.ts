@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type Feature = "gate" | "dryer" | "lock";
+type Feature = "gate" | "dryer" | "lock" | "auto";
 
 export function useFeatureActivation(feature: Feature, activeByDefault: boolean) {
   const [active, setActive] = useState(activeByDefault);

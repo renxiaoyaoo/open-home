@@ -3,7 +3,7 @@ import { getDb } from "../db/index.ts";
 import type { ProviderRequestContext } from "./provider.ts";
 import { openSession, sealSession } from "./session-crypto.ts";
 
-export type ProviderId = "opengate" | "opendevice" | "openlock";
+export type ProviderId = "opengate" | "opendevice" | "openlock" | "openauto";
 export type CentralSession = { sessionId: string; signingToken: string; openId: string; context: ProviderRequestContext };
 
 export function assertCentralEnabled() { if (process.env.OPENHOME_ACCESS_ENABLED !== "1") throw new Error("OpenAPI is disabled until access control is configured"); }
