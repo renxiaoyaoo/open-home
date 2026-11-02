@@ -81,7 +81,10 @@ export function isProviderBundle(value: unknown): value is ProviderBundle {
 }
 
 export function providerBundle(): ProviderBundle {
-  const value = process.env.OPENHOME_PROVIDER_BUNDLE?.trim() || "";
+  const partCount = Number.parseInt(process.env.OPENHOME_PROVIDER_BUNDLE_PART_COUNT || "0", 10);
+  const value = partCount > 0 && partCount <= 32
+    ? Array.from({ length: partCount }, (_, index) => process.env[`OPENHOME_PROVIDER_BUNDLE_PART_${index}`] || "").join("")
+    : process.env.OPENHOME_PROVIDER_BUNDLE?.trim() || "";
   if (!value) throw new Error("Provider bundle is not configured");
   if (value === source && cached) return cached;
   let parsed: unknown;
