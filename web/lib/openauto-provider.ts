@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
+import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
 import { autoRoute, providerBundle } from "./provider-bundle.ts";
 import { decryptEnvelope, encryptEnvelope } from "./openauto-codec.js";
 
@@ -75,7 +75,8 @@ export class DirectOpenAutoProvider {
     const inner = { ...this.inner(), energyType: this.client("energyType", "0"), tboxVersion: this.client("tboxVersion", "3"), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("latestCondition"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆状态加载失败")); return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
   private async energyRequest(route: "recentEnergy" | "historicalEnergy", vehicleId: string, vehicle: Json, extra: Json = {}) {
-    const inner = { ...this.inner(), vin: vehicleId, autoType: String(vehicle.autoType || this.client("autoType")), tboxVersion: String(vehicle.tboxVersion || this.client("tboxVersion", "3")), ...extra };
+    const metadata = energyVehicleMetadata(vehicle, { autoType: this.client("autoType"), tboxVersion: this.client("tboxVersion") });
+    const inner = { ...this.inner(), vin: vehicleId, ...metadata, ...extra };
     const built = this.tokenRequest(inner); const response = await this.post(autoRoute(route), built.request);
     if (String(response.code) !== "0") throw new Error(String(response.message || "能耗数据加载失败"));
     return aesDecrypt(String(response.respondData || ""), built.contentKey);

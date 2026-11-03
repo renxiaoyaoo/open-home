@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary } from "../lib/openauto.ts";
+import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary } from "../lib/openauto.ts";
 
 test("normalizes a vehicle-condition response without retaining provider fields", () => {
   const summary = normalizeVehicleSummary({
@@ -170,6 +170,11 @@ test("normalizes the current aggregate range, health, and energy contracts", () 
   assert.equal(energy.equivalentFuelLitresPer100Km, 3.6);
   assert.equal(energy.cumulativeEquivalentFuelLitresPer100Km, 4.6);
   assert.equal(energy.recentTrend[0]?.peerAverageLitresPer100Km, 4.5);
+});
+
+test("uses official vehicle-list metadata for aggregate energy", () => {
+  assert.deepEqual(energyVehicleMetadata({ outModelType: "MODEL-A", tboxVersion: "5" }, { autoType: "WRONG", tboxVersion: "3" }), { autoType: "MODEL-A", tboxVersion: "5" });
+  assert.deepEqual(energyVehicleMetadata({ autoType: "LEGACY", tBoxVersion: "4" }), { autoType: "LEGACY", tboxVersion: "4" });
 });
 
 test("rejects a response without a stable vehicle identity", () => {

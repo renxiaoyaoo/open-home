@@ -80,6 +80,13 @@ export interface OpenAutoProvider {
 }
 type RawVehicle = Record<string, unknown>;
 
+export function energyVehicleMetadata(vehicle: RawVehicle, defaults: RawVehicle = {}) {
+  return {
+    autoType: String(vehicle.outModelType ?? vehicle.autoType ?? defaults.autoType ?? ""),
+    tboxVersion: String(vehicle.tboxVersion ?? vehicle.tBoxVersion ?? defaults.tboxVersion ?? ""),
+  };
+}
+
 function finite(value: unknown) {
   const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
   return Number.isFinite(number) && ![-999, -9999, 65535].includes(number) ? number : undefined;
