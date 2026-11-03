@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeEnergyConsumption, normalizeVehicleEnergy, normalizeVehicleSummary } from "../lib/openauto.ts";
+import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary } from "../lib/openauto.ts";
 
 test("normalizes a vehicle-condition response without retaining provider fields", () => {
   const summary = normalizeVehicleSummary({
@@ -175,20 +175,6 @@ test("normalizes the current aggregate range, health, and energy contracts", () 
 test("uses official vehicle-list metadata for aggregate energy", () => {
   assert.deepEqual(energyVehicleMetadata({ outModelType: "MODEL-A", tboxVersion: "5" }, { autoType: "WRONG", tboxVersion: "3" }), { autoType: "MODEL-A", tboxVersion: "5" });
   assert.deepEqual(energyVehicleMetadata({ autoType: "LEGACY", tBoxVersion: "4" }), { autoType: "LEGACY", tboxVersion: "4" });
-});
-
-test("normalizes the official detailed energy-consumption contract", () => {
-  const energy = normalizeEnergyConsumption({
-    time: 1778212356,
-    selfGraph: { energyConsumption: [3.8, 3.7] }, autoModelGraph: { energyConsumption: [4.2, 4.1] },
-    nearestEnergyConsumption: { avgEqOilConsumption: 3.6, avgEvConsumption: 12.9, avgOilConsumption: 0, evConsumption: 6.45, oilConsumption: 0, driveDistribution: 72, airDistribution: 11, electDistribution: 9, otherDistribution: 8 },
-    cumulativeEnergyConsumption: { totalMileage: 8445, avgEvConsumption: 4.7, avgOilConsumption: 3.3 },
-  });
-  assert.equal(energy.electricityKwh, 6.45);
-  assert.deepEqual(energy.breakdown, { propulsionPercent: 72, climatePercent: 11, electricalPercent: 9, otherPercent: 8 });
-  assert.equal(energy.recentTrend.length, 2);
-  assert.equal(energy.recentTrend[1]?.peerAverageLitresPer100Km, 4.1);
-  assert.equal(energy.totalDistanceKm, 8445);
 });
 
 test("rejects a response without a stable vehicle identity", () => {

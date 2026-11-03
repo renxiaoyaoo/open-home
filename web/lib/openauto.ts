@@ -86,7 +86,6 @@ export function energyVehicleMetadata(vehicle: RawVehicle, defaults: RawVehicle 
     tboxVersion: String(vehicle.tboxVersion ?? vehicle.tBoxVersion ?? defaults.tboxVersion ?? ""),
   };
 }
-
 function finite(value: unknown) {
   const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
   return Number.isFinite(number) && ![-999, -9999, 65535].includes(number) ? number : undefined;
@@ -249,35 +248,5 @@ export function normalizeDetailedVehicleEnergy(recentInput: RawVehicle, historic
     cumulativeRankPercent: leadingPercent(sum),
     cumulativeEquivalentFuelLitresPer100Km: nonnegative(sum.fee), cumulativeElectricityKwhPer100Km: nonnegative(sum.elect), cumulativeFuelLitresPer100Km: nonnegative(sum.fuel),
     costPerKmYuan: nonnegative(sum.cost), updatedAt: timestamp(recent.energyDate),
-  };
-}
-
-export function normalizeEnergyConsumption(raw: RawVehicle): VehicleEnergy {
-  const nearest = raw.nearestEnergyConsumption && typeof raw.nearestEnergyConsumption === "object" ? raw.nearestEnergyConsumption as RawVehicle : {};
-  const cumulative = raw.cumulativeEnergyConsumption && typeof raw.cumulativeEnergyConsumption === "object" ? raw.cumulativeEnergyConsumption as RawVehicle : {};
-  const selfGraph = raw.selfGraph && typeof raw.selfGraph === "object" ? raw.selfGraph as RawVehicle : {};
-  const modelGraph = raw.autoModelGraph && typeof raw.autoModelGraph === "object" ? raw.autoModelGraph as RawVehicle : {};
-  const own = Array.isArray(selfGraph.energyConsumption) ? selfGraph.energyConsumption : [];
-  const peers = Array.isArray(modelGraph.energyConsumption) ? modelGraph.energyConsumption : [];
-  const observedAt = finite(raw.time);
-  const end = observedAt === undefined ? undefined : new Date(observedAt < 10_000_000_000 ? observedAt * 1000 : observedAt);
-  const trend = own.slice(-7).map((value, index, values) => {
-    const date = end && !Number.isNaN(end.getTime()) ? new Date(end.getTime() - (values.length - 1 - index) * 86_400_000).toISOString().slice(0, 10) : String(index + 1);
-    return { date, equivalentFuelLitresPer100Km: nonnegative(value), peerAverageLitresPer100Km: nonnegative(peers[peers.length - values.length + index]) };
-  }).filter((item) => item.equivalentFuelLitresPer100Km !== undefined || item.peerAverageLitresPer100Km !== undefined);
-  const breakdown = {
-    propulsionPercent: percent(nearest.driveDistribution), climatePercent: percent(nearest.airDistribution),
-    electricalPercent: percent(nearest.electDistribution), otherPercent: percent(nearest.otherDistribution),
-  };
-  return {
-    recentDistanceKm: 50,
-    equivalentFuelLitresPer100Km: nonnegative(nearest.avgEqOilConsumption),
-    electricityKwhPer100Km: nonnegative(nearest.avgEvConsumption), fuelLitresPer100Km: nonnegative(nearest.avgOilConsumption),
-    electricityKwh: nonnegative(nearest.evConsumption), fuelLitres: nonnegative(nearest.oilConsumption),
-    breakdown: Object.values(breakdown).some((value) => value !== undefined) ? breakdown : undefined,
-    recentTrend: trend,
-    totalDistanceKm: nonnegative(cumulative.totalMileage),
-    cumulativeElectricityKwhPer100Km: nonnegative(cumulative.avgEvConsumption), cumulativeFuelLitresPer100Km: nonnegative(cumulative.avgOilConsumption),
-    updatedAt: timestamp(raw.time),
   };
 }

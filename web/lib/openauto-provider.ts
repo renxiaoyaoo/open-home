@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeEnergyConsumption, normalizeVehicleEnergy, normalizeVehicleSummary, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
+import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
 import { autoRoute, providerBundle } from "./provider-bundle.ts";
 import { decryptEnvelope, encryptEnvelope } from "./openauto-codec.js";
 
@@ -81,12 +81,6 @@ export class DirectOpenAutoProvider {
     if (String(response.code) !== "0") throw new Error(String(response.message || "能耗数据加载失败"));
     return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
-  private async energyDetailsRequest(vehicleId: string, vehicle: Json) {
-    const inner = { ...this.inner(), vin: vehicleId, powerType: String(vehicle.energyType ?? this.client("energyType", "0")), requestType: 0, autoModelNameOut: String(vehicle.outModelType ?? vehicle.modelName ?? "") };
-    const built = this.tokenRequest(inner); const response = await this.post(autoRoute("historicalEnergy"), built.request);
-    if (String(response.code) !== "0") throw new Error(String(response.message || "详细能耗数据加载失败"));
-    return aesDecrypt(String(response.respondData || ""), built.contentKey);
-  }
   private async locationName(vehicleId: string) {
     const route = this.config!.routes.location; const resolver = this.config!.locationResolver;
     if (!route || !resolver) return undefined;
@@ -111,15 +105,7 @@ export class DirectOpenAutoProvider {
     try {
       const overviewRaw = await this.energyRequest("recentEnergy", vehicleId, vehicle);
       const overview = aggregateEnergy(overviewRaw); const ranked = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
-      try {
-        const consumption = normalizeEnergyConsumption(await this.energyDetailsRequest(vehicleId, vehicle));
-        const consumptionValues = Object.fromEntries(Object.entries(consumption).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
-        const values = Object.fromEntries(Object.entries({ ...ranked, ...consumptionValues }).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
-        return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: consumption.recentTrend.length ? consumption.recentTrend : ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
-      } catch (error) {
-        console.warn("OpenAuto detailed energy failed", { message: error instanceof Error ? error.message : "unknown error" });
-        return { summary, energy: { ...fallbackEnergy, ...ranked, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
-      }
+      return { summary, energy: { ...fallbackEnergy, ...ranked, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
     } catch (error) {
       console.warn("OpenAuto aggregate energy failed", { message: error instanceof Error ? error.message : "unknown error" });
       return { summary, energy: fallbackEnergy };
