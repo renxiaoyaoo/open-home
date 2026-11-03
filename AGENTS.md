@@ -15,8 +15,7 @@ phone numbers, signing material, deployment domains, and captured artifacts.
   report completion for a UI change based only on a successful build.
 - Do not commit `.env` files, local databases, provider responses, screenshots
   containing real data, or generated deployment configuration.
-- Do not deploy to Cloudflare or another environment unless explicitly asked.
-  Deployment must stop if tests, lint, or build fail.
+- Deployment must stop if tests, lint, or build fail.
 
 ## Architecture
 
