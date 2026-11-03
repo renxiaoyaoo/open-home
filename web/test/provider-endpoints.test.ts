@@ -94,6 +94,22 @@ test("refreshes an appliance session when the provider rejects the token passwor
   assert.equal(calls.length, 3);
 });
 
+test("persists nested access and rotated refresh credentials", async () => {
+  const originalFetch = globalThis.fetch;
+  let homes = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/homes")) return Response.json(homes++ === 0 ? { code: 40002, msg: "token expired" } : { code: 0, data: [] });
+    return Response.json({ code: 0, data: { mdata: { accessToken: "nested-token", expired: 456, tokenPwdInfo: { tokenPwd: "rotated-secret", expiredDate: 789 } } } });
+  }) as typeof fetch;
+  const session = { uid: "user", accessToken: "old-token", deviceId: "client", tokenPwd: "old-secret", accessTokenExpiresAt: 1, tokenPwdExpiresAt: 2 };
+  try { assert.deepEqual(await new OpenDeviceProvider(session).listHomes(), []); } finally { globalThis.fetch = originalFetch; }
+  assert.equal(session.accessToken, "nested-token");
+  assert.equal(session.accessTokenExpiresAt, 456);
+  assert.equal(session.tokenPwd, "rotated-secret");
+  assert.equal(session.tokenPwdExpiresAt, 789);
+});
+
 test("matches the provider app's literal sessionId URL concatenation", () => {
   const url = providerUrl("mobile", "account/profile");
   assert.equal(appendRawSessionId(url, "abc:0123456789abcdef"), "https://mobile.provider.example/api/account/profile?sessionId=abc:0123456789abcdef");

@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { DRYER_PROGRAM_IDS, DRYER_PROGRAMS } from "./dryer-programs.ts";
 import { deviceRoute, providerBundle } from "./provider-bundle.ts";
 
-export type OpenDeviceSession = { uid: string; accessToken: string; deviceId: string; displayName?: string; tokenPwd?: string; accessTokenExpiresAt?: number };
+export type OpenDeviceSession = { uid: string; accessToken: string; deviceId: string; displayName?: string; tokenPwd?: string; accessTokenExpiresAt?: number; tokenPwdExpiresAt?: number };
 function stamp(now = new Date()) { return now.toISOString().replace(/[-:T]/g, "").slice(0, 14); }
 
 export class OpenDeviceProvider {
@@ -41,11 +41,16 @@ export class OpenDeviceProvider {
       headers: { userId: this.uid },
       refresh: false,
       authenticated: false,
-    }) as { accessToken?: string; expired?: number };
-    if (!result.accessToken) throw new Error("OpenLiving session refresh did not return a token");
-    this.accessToken = result.accessToken;
-    this.session.accessToken = result.accessToken;
-    if (Number.isFinite(Number(result.expired))) this.session.accessTokenExpiresAt = Number(result.expired);
+    }) as { accessToken?: string; expired?: number; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number }; mdata?: { accessToken?: string; expired?: number; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number } } };
+    const accessToken = result.accessToken || result.mdata?.accessToken;
+    const tokenInfo = result.tokenPwdInfo || result.mdata?.tokenPwdInfo;
+    if (!accessToken) throw new Error("OpenLiving session refresh did not return a token");
+    this.accessToken = accessToken;
+    this.session.accessToken = accessToken;
+    const accessExpiry = result.expired ?? result.mdata?.expired;
+    if (Number.isFinite(Number(accessExpiry))) this.session.accessTokenExpiresAt = Number(accessExpiry);
+    if (tokenInfo?.tokenPwd) this.session.tokenPwd = tokenInfo.tokenPwd;
+    if (Number.isFinite(Number(tokenInfo?.expiredDate))) this.session.tokenPwdExpiresAt = Number(tokenInfo?.expiredDate);
   }
   requestSms(mobile: string) { return this.request(deviceRoute("sms"), { data: { data: { deviceId: this.deviceId }, iotData: { type: 9, mobile, iotAppId: this.appId }, timestamp: stamp() } }); }
   async smsLogin(mobile: string, smsCode: string) {
@@ -54,7 +59,7 @@ export class OpenDeviceProvider {
     const displayName = result.userInfo?.nickName || result.userInfo?.nickname || result.userInfo?.name || result.mdata?.userInfo?.nickName || result.mdata?.userInfo?.nickname || `${mobile.slice(0, 3)}****${mobile.slice(-4)}`;
     const tokenInfo = result.mdata?.tokenPwdInfo || result.tokenPwdInfo;
     if (!uid || !accessToken) throw new Error("OpenLiving login response did not contain a session");
-    return { uid: String(uid), accessToken: String(accessToken), deviceId: this.deviceId, displayName, tokenPwd: tokenInfo?.tokenPwd, accessTokenExpiresAt: result.mdata?.expired };
+    return { uid: String(uid), accessToken: String(accessToken), deviceId: this.deviceId, displayName, tokenPwd: tokenInfo?.tokenPwd, accessTokenExpiresAt: result.mdata?.expired, tokenPwdExpiresAt: tokenInfo?.expiredDate };
   }
   listHomes() { return this.request(deviceRoute("homes"), { data: this.general() }); }
   listDevices(homeId: string) { return this.request(deviceRoute("devices"), { data: this.general({ homegroupId: homeId }) }); }
