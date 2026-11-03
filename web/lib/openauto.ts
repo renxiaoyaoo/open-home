@@ -165,7 +165,7 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     id,
     name: text(raw.name) || text(raw.vehicleName) || text(raw.modelName) || "车辆",
     powerState: powerGear === 3 || ["1", "on", "running"].includes(power) ? "on" : powerGear === 1 || ["0", "off", "stopped"].includes(power) ? "off" : "unknown",
-    estimatedRangeKm: nonnegative(raw.totalEnduranceMileage) ?? nonnegative(raw.enduranceMileage) ?? (electricRangeKm !== undefined && fuelRangeKm !== undefined ? electricRangeKm + fuelRangeKm : undefined),
+    estimatedRangeKm: electricRangeKm !== undefined && fuelRangeKm !== undefined ? electricRangeKm + fuelRangeKm : nonnegative(raw.totalEnduranceMileage) ?? nonnegative(raw.enduranceMileage),
     electricRangeKm,
     fuelRangeKm,
     tractionBatteryPercent: percent(raw.elecPercent),

@@ -102,7 +102,8 @@ export class DirectOpenAutoProvider {
       const detailed = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
       const values = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
       return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
-    } catch {
+    } catch (error) {
+      console.warn("OpenAuto aggregate energy failed", { message: error instanceof Error ? error.message : "unknown error" });
       return { summary, energy: fallbackEnergy };
     }
   }
