@@ -45,8 +45,8 @@ export async function centralDoors(accountId: string) {
     }
 
     // Older provider deployments may not expose the complete-list endpoint.
-    // Preserve the previously verified home-list behavior instead of erasing
-    // the account's cached doors when that happens.
+    // Preserve the previously verified home-list behavior when the complete
+    // list endpoint is unavailable; resource lists are never cached locally.
     if (!home || !isSuccess(home)) throw new Error(upstreamMessage(home || {}, "门禁查询失败"));
     doors.push(...featured.map((door, index) => ({ ...door, providerFeatured: true, providerOrder: index })));
   }

@@ -7,13 +7,13 @@ The public project is provider-neutral: upstream endpoints, credentials, signing
 ## Modules
 
 - **OpenGate**: multiple access-provider accounts, aggregated doors, remote opening, and temporary access codes
-- **OpenDevice**: authorized smart-appliance accounts and device controls; dryer status, programs, operation, and appointments are currently implemented
+- **OpenLiving**: authorized smart-appliance accounts and device controls; dryer status, programs, operation, and appointments are currently implemented
 - **OpenLock**: smart-lock status, capture albums, security and operation records, and temporary passwords
 - **OpenAuto**: read-only vehicle status, range, battery/fuel levels, mileage, charging data, tire pressure, and energy analysis
 
 ## Shared foundation
 
-- Server-held OpenGate sessions that can be shared across clients
+- Server-held provider sessions that can be shared across clients
 - Aggregated doors without exposing account-to-door relationships
 - Opaque public identifiers and idempotent open requests
 - Large, mobile-first door controls

@@ -20,8 +20,8 @@ phone numbers, signing material, deployment domains, and captured artifacts.
 ## Architecture
 
 - OpenHome is one product shell with independent modules such as OpenGate and
-  OpenDevice. Reuse navigation, visual tokens, HTTP helpers, session crypto,
-  storage ports, error mapping, audit primitives, and deployment adapters;
+  OpenLiving. Reuse navigation, visual tokens, HTTP helpers, session crypto,
+  storage ports, error mapping, and deployment adapters;
   never fork a second application stack for a new module.
 - Keep UI and public APIs on stable domain models. Provider endpoints, raw
   response maps, signing/encryption inputs, cookies, client fingerprints, and
