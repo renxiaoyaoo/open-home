@@ -168,6 +168,8 @@ test("normalizes the current aggregate range, health, and energy contracts", () 
   }, undefined, 8445);
   assert.equal(energy.rankPercent, 73);
   assert.equal(energy.equivalentFuelLitresPer100Km, 3.6);
+  assert.equal(energy.electricityKwh, 6.45);
+  assert.equal(energy.fuelLitres, 0);
   assert.equal(energy.cumulativeEquivalentFuelLitresPer100Km, 4.6);
   assert.equal(energy.recentTrend[0]?.peerAverageLitresPer100Km, 4.5);
 });

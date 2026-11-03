@@ -235,11 +235,15 @@ export function normalizeDetailedVehicleEnergy(recentInput: RawVehicle, historic
     propulsionPercent: percent(recent.driveConP), climatePercent: percent(recent.acConP),
     electricalPercent: percent(recent.elecConP), otherPercent: percent(recent.restConP),
   };
+  const recentDistanceKm = finite(recent.dkm) ?? 50;
+  const electricityKwhPer100Km = nonnegative(recent.avgEvCon) ?? nonnegative(recent.elect);
+  const fuelLitresPer100Km = nonnegative(recent.avgOilCon) ?? nonnegative(recent.fuel);
   return {
     rankPercent: leadingPercent(recent),
-    recentDistanceKm: finite(recent.dkm) ?? 50,
-    equivalentFuelLitresPer100Km: nonnegative(recent.avgFullCon) ?? nonnegative(recent.fee), electricityKwhPer100Km: nonnegative(recent.avgEvCon) ?? nonnegative(recent.elect), fuelLitresPer100Km: nonnegative(recent.avgOilCon) ?? nonnegative(recent.fuel),
-    electricityKwh: nonnegative(recent.mxElect), fuelLitres: nonnegative(recent.mxOil), costYuan: nonnegative(recent.cost),
+    recentDistanceKm,
+    equivalentFuelLitresPer100Km: nonnegative(recent.avgFullCon) ?? nonnegative(recent.fee), electricityKwhPer100Km, fuelLitresPer100Km,
+    electricityKwh: nonnegative(recent.mxElect) ?? (electricityKwhPer100Km === undefined ? undefined : electricityKwhPer100Km * recentDistanceKm / 100),
+    fuelLitres: nonnegative(recent.mxOil) ?? (fuelLitresPer100Km === undefined ? undefined : fuelLitresPer100Km * recentDistanceKm / 100), costYuan: nonnegative(recent.cost),
     breakdown: Object.values(breakdown).some((value) => value !== undefined && value > 0) ? breakdown : undefined,
     recentTrend: trend.map((item, index) => item && typeof item === "object" ? {
       date: text((item as RawVehicle).date) || text((item as RawVehicle).energyDate) || "", equivalentFuelLitresPer100Km: nonnegative((item as RawVehicle).lastFee) ?? nonnegative((item as RawVehicle).fee), peerAverageLitresPer100Km: nonnegative(peers[index]?.lastFee) ?? nonnegative(peers[index]?.fee) ?? nonnegative(peers[0]?.lastFee) ?? nonnegative(peers[0]?.fee),
