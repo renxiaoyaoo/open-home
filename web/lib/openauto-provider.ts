@@ -103,9 +103,16 @@ export class DirectOpenAutoProvider {
     try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
     try { summary.cabinTemperatureC = await this.cabinTemperature(vehicleId) ?? summary.cabinTemperatureC; } catch { /* Climate state is optional; vehicle state remains usable. */ }
     try {
-      const overviewRaw = await this.energyRequest("recentEnergy", vehicleId, vehicle);
+      const overviewRaw = await this.energyRequest("historicalEnergy", vehicleId, vehicle);
       const overview = aggregateEnergy(overviewRaw); const ranked = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
-      return { summary, energy: { ...fallbackEnergy, ...ranked, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
+      try {
+        const detailed = normalizeDetailedVehicleEnergy(await this.energyRequest("recentEnergy", vehicleId, vehicle, { type: "NEAREST_KM" }), overview, summary.odometerKm);
+        const detailedValues = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0))) as unknown as VehicleEnergy;
+        return { summary, energy: { ...fallbackEnergy, ...ranked, ...detailedValues, rankPercent: ranked.rankPercent, cumulativeRankPercent: ranked.cumulativeRankPercent, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
+      } catch (error) {
+        console.warn("OpenAuto recent energy failed", { message: error instanceof Error ? error.message : "unknown error" });
+        return { summary, energy: { ...fallbackEnergy, ...ranked, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
+      }
     } catch (error) {
       console.warn("OpenAuto aggregate energy failed", { message: error instanceof Error ? error.message : "unknown error" });
       return { summary, energy: fallbackEnergy };
