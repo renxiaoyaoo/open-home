@@ -29,6 +29,11 @@ function climateTemperature(value: Json) {
   for (const item of candidates) { const temperature = finite(item.tempInCar ?? item.insideTemperature ?? item.carInnerTemperature); if (temperature !== undefined && ![-999, -9999].includes(temperature)) return temperature; }
   return undefined;
 }
+function aggregateEnergy(value: Json) {
+  const nested = [value.data, value.result, value.allOilData, value.oilData];
+  const candidates = [value, ...nested, ...(Array.isArray(value.data) ? value.data : [])].filter((item): item is Json => Boolean(item && typeof item === "object" && !Array.isArray(item)));
+  return candidates.find((item) => item.recentOilData !== undefined || item.sumOilData !== undefined || item.selfList !== undefined) || value;
+}
 
 export class DirectOpenAutoProvider {
   private readonly config = providerBundle().auto;
@@ -98,7 +103,7 @@ export class DirectOpenAutoProvider {
     try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
     try { summary.cabinTemperatureC = await this.cabinTemperature(vehicleId) ?? summary.cabinTemperatureC; } catch { /* Climate state is optional; vehicle state remains usable. */ }
     try {
-      const overview = await this.energyRequest("recentEnergy", vehicleId, raw);
+      const overview = aggregateEnergy(await this.energyRequest("recentEnergy", vehicleId, raw));
       const detailed = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
       const values = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
       return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
