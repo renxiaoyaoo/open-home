@@ -126,8 +126,11 @@ export class DirectOpenAutoProvider {
     const [raw, items] = await Promise.all([this.rawSummary(vehicleId), this.rawVehicles()]);
     return await this.buildSummary(vehicleId, items.find((item) => String(item.vin) === vehicleId) || {}, raw);
   }
+  async liveStatus(vehicleId: string) { return normalizeVehicleSummary(await this.rawSummary(vehicleId), vehicleId); }
   async bootstrap() {
     const items = await this.rawVehicles(); const vehicles = this.publicVehicles(items); const vehicleId = vehicles[0]?.id;
-    return { vehicles, snapshot: vehicleId ? await this.buildSummary(vehicleId, items.find((item) => String(item.vin) === vehicleId) || {}, await this.rawSummary(vehicleId)) : undefined };
+    if (!vehicleId) return { vehicles, snapshot: undefined };
+    const raw = await this.rawSummary(vehicleId);
+    return { vehicles, snapshot: { summary: normalizeVehicleSummary(raw, vehicleId), energy: normalizeVehicleEnergy(raw) } };
   }
 }

@@ -76,6 +76,8 @@ paths:
     get: { summary: Load vehicles and the initial live snapshot, responses: { "200": { description: Initial vehicle data } } }
   /auto/vehicles:
     get: { summary: List current vehicles, responses: { "200": { description: Vehicle list } } }
+  /auto/status:
+    get: { summary: Read lightweight live vehicle status, parameters: [{ $ref: "#/components/parameters/vehicleId" }], responses: { "200": { description: Live vehicle status } } }
   /auto/summary:
     get: { summary: Read normalized vehicle status and energy data, parameters: [{ $ref: "#/components/parameters/vehicleId" }], responses: { "200": { description: Vehicle snapshot } } }
 components:

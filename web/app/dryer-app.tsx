@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Baby, BedDouble, CalendarClock, Dumbbell, Flame, LoaderCircle, LogOut, Pause, Play, Power, RefreshCw, Shirt, Smartphone, Sparkles, Timer, Waves, Wind, X } from "lucide-react";
 import { appointmentDelay, finishAt } from "@/lib/dryer-schedule";
 import { useFeatureActivation } from "./use-feature-activation";
@@ -31,6 +31,7 @@ export function DryerApp({ activeByDefault = false }: { activeByDefault?: boolea
   const [deviceId, setDeviceId] = useState(""); const [deviceName, setDeviceName] = useState("干衣机"); const [state, setState] = useState<DryerState | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]); const [programsLoading, setProgramsLoading] = useState(true); const [program, setProgram] = useState(43); const [programPresentation, setProgramPresentation] = useState<Program>(); const [showMore, setShowMore] = useState(false); const [programGroup, setProgramGroup] = useState<ProgramGroup>("日常程序"); const [programInfo, setProgramInfo] = useState<Program>(); const [startTime, setStartTime] = useState("23:00");
   const [busy, setBusy] = useState<string | null>(null); const [toast, setToast] = useState<Toast | null>(null); const [confirmLogout, setConfirmLogout] = useState(false); const [confirmPowerOff, setConfirmPowerOff] = useState(false); const [confirmCancelAppointment, setConfirmCancelAppointment] = useState(false);
+  const statusReading = useRef(false);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 2600); return () => window.clearTimeout(timer); }, [toast]);
   useEffect(() => { if (!countdown) return; const timer = window.setInterval(() => setCountdown((v) => Math.max(0, v - 1)), 1000); return () => window.clearInterval(timer); }, [countdown]);
   const notify = useCallback((text: string, kind: Toast["kind"] = "info") => setToast({ text, kind }), []);
@@ -40,6 +41,7 @@ export function DryerApp({ activeByDefault = false }: { activeByDefault?: boolea
   // Hydrate the provider-backed session once after mount.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (!active || initialized) return; initialize().catch(() => setLoggedIn(false)).finally(() => setInitialized(true)); }, [active, initialize, initialized]);
+  useEffect(() => { if (!active || !loggedIn || !deviceId) return; const update = async () => { if (document.visibilityState !== "visible" || statusReading.current) return; statusReading.current = true; try { await refresh(deviceId); } catch { /* Keep the last rendered response until the next foreground read succeeds. */ } finally { statusReading.current = false; } }; const timer = window.setInterval(() => void update(), 10_000); const visible = () => { if (document.visibilityState === "visible") void update(); }; document.addEventListener("visibilitychange", visible); return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", visible); }; }, [active, deviceId, loggedIn, refresh]);
   async function login(smsCode = code) { if (busy || !/^1\d{10}$/.test(mobile) || !/^\d{6}$/.test(smsCode)) return; setBusy("login"); try { await api("login", { method: "POST", body: JSON.stringify({ mobile, code: smsCode }) }); if (!await initialize()) throw new Error("登录未生效，请重新获取验证码"); setMobile(""); setCode(""); setCountdown(0); notify("登录成功", "success"); } catch (e) { notify(e instanceof Error ? e.message : "登录失败", "error"); } finally { setBusy(null); } }
   async function sendSms() { if (!/^1\d{10}$/.test(mobile)) return notify("请输入正确手机号", "error"); setBusy("sms"); try { await api("sms", { method: "POST", body: JSON.stringify({ mobile }) }); setCountdown(60); notify("验证码已发送", "success"); } catch (e) { notify(e instanceof Error ? e.message : "发送失败", "error"); } finally { setBusy(null); } }
   async function logout() { setBusy("logout"); try { await api("logout", { method: "POST" }); setLoggedIn(false); setDeviceId(""); setState(null); setConfirmLogout(false); notify("已退出", "success"); } catch (e) { notify(e instanceof Error ? e.message : "退出失败", "error"); } finally { setBusy(null); } }
