@@ -7,13 +7,14 @@ import { useFeatureActivation } from "./use-feature-activation";
 type Result<T> = { ok: boolean; data?: T; message?: string };
 type Vehicle = { id: string; name: string };
 type Snapshot = { summary: VehicleSummary; energy: VehicleEnergy };
+type Bootstrap = { vehicles: Vehicle[]; snapshot?: Snapshot };
 async function api<T>(operation: string, init?: RequestInit) { const response = await fetch(`/api/v1/auto/${operation}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); const payload = await response.json() as Result<T>; if (!response.ok || !payload.ok) throw Object.assign(new Error(payload.message || "请求失败"), { status: response.status }); return payload.data as T; }
 
 export function AutoApp({ activeByDefault = false }: { activeByDefault?: boolean }) {
   const active = useFeatureActivation("auto", activeByDefault); const [ready, setReady] = useState(false); const [loggedIn, setLoggedIn] = useState(false); const [phone, setPhone] = useState(""); const [password, setPassword] = useState(""); const [vehicles, setVehicles] = useState<Vehicle[]>([]); const [selected, setSelected] = useState(""); const [snapshot, setSnapshot] = useState<Snapshot>(); const summary = snapshot?.summary; const [busy, setBusy] = useState(""); const [toast, setToast] = useState(""); const [confirmLogout, setConfirmLogout] = useState(false);
   useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(""), 2600); return () => clearTimeout(id); }, [toast]);
   const loadSummary = useCallback(async (id: string) => { setSnapshot(await api<Snapshot>(`summary?vehicleId=${encodeURIComponent(id)}`)); }, []);
-  const initialize = useCallback(async () => { try { await api<{ displayName?: string }>("profile"); setLoggedIn(true); const list = await api<Vehicle[]>("vehicles"); setVehicles(list); const id = list[0]?.id || ""; setSelected(id); if (id) await loadSummary(id); return true; } catch (error) { if ((error as { status?: number }).status === 401) { setLoggedIn(false); setVehicles([]); setSnapshot(undefined); return false; } throw error; } }, [loadSummary]);
+  const initialize = useCallback(async () => { try { const [, initial] = await Promise.all([api<{ displayName?: string }>("profile"), api<Bootstrap>("bootstrap")]); setLoggedIn(true); setVehicles(initial.vehicles); setSelected(initial.vehicles[0]?.id || ""); setSnapshot(initial.snapshot); return true; } catch (error) { if ((error as { status?: number }).status === 401) { setLoggedIn(false); setVehicles([]); setSnapshot(undefined); return false; } throw error; } }, []);
   // Hydrate the provider-backed session only when this persistent tab is first opened.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (!active || ready) return; initialize().catch((error) => setToast(error instanceof Error ? error.message : "加载失败")).finally(() => setReady(true)); }, [active, initialize, ready]);

@@ -15,6 +15,7 @@ export async function callOpenAuto(operation: string, request: Request) {
   const stored = await loadProviderSession<OpenAutoSession>("openauto", url.searchParams.get("accountId") || undefined);
   const provider = new DirectOpenAutoProvider(stored.session);
   if (operation === "profile") return Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName } });
+  if (operation === "bootstrap") return Response.json({ ok: true, data: await provider.bootstrap() });
   if (operation === "vehicles") return Response.json({ ok: true, data: await provider.vehicles() });
   if (operation === "summary") { const vehicleId = url.searchParams.get("vehicleId") || ""; if (!vehicleId) throw new Error("缺少车辆标识"); return Response.json({ ok: true, data: await provider.summary(vehicleId) }); }
   throw new Error("不支持的 OpenAuto 操作");

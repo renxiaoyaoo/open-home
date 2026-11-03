@@ -70,7 +70,8 @@ export class DirectOpenAutoProvider {
     return { userId, superId: superId || undefined, signToken, encryToken, displayName: String(decoded.nickName || "OpenAuto 账号") };
   }
   private async rawVehicles() { const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new OpenAutoUpstreamError(String(response.code ?? "unknown"), String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); return (Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []) as Json[]; }
-  async vehicles() { return (await this.rawVehicles()).filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") })); }
+  private publicVehicles(items: Json[]) { return items.filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") })); }
+  async vehicles() { return this.publicVehicles(await this.rawVehicles()); }
   private async rawSummary(vehicleId: string) {
     const inner = { ...this.inner(), energyType: this.client("energyType", "0"), tboxVersion: this.client("tboxVersion", "3"), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("latestCondition"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆状态加载失败")); return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
@@ -98,8 +99,8 @@ export class DirectOpenAutoProvider {
     if (String(response.code) !== "0") return undefined;
     return climateTemperature(aesDecrypt(String(response.respondData || ""), built.contentKey));
   }
-  async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
-    const [raw, vehicle] = await Promise.all([this.rawSummary(vehicleId), this.rawVehicles().then((items) => items.find((item) => String(item.vin) === vehicleId) || {})]); const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
+  private async buildSummary(vehicleId: string, vehicle: Json, raw: Json): Promise<OpenAutoSnapshot> {
+    const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
     const [location, climate, historical, recent] = await Promise.allSettled([
       this.locationName(vehicleId),
       this.cabinTemperature(vehicleId),
@@ -120,5 +121,13 @@ export class DirectOpenAutoProvider {
     const detailed = normalizeDetailedVehicleEnergy(recent.value, overview, summary.odometerKm);
     const detailedValues = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0))) as unknown as VehicleEnergy;
     return { summary, energy: { ...fallbackEnergy, ...ranked, ...detailedValues, rankPercent: ranked.rankPercent, cumulativeRankPercent: ranked.cumulativeRankPercent, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
+  }
+  async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
+    const [raw, items] = await Promise.all([this.rawSummary(vehicleId), this.rawVehicles()]);
+    return await this.buildSummary(vehicleId, items.find((item) => String(item.vin) === vehicleId) || {}, raw);
+  }
+  async bootstrap() {
+    const items = await this.rawVehicles(); const vehicles = this.publicVehicles(items); const vehicleId = vehicles[0]?.id;
+    return { vehicles, snapshot: vehicleId ? await this.buildSummary(vehicleId, items.find((item) => String(item.vin) === vehicleId) || {}, await this.rawSummary(vehicleId)) : undefined };
   }
 }

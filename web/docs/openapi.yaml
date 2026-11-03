@@ -72,6 +72,8 @@ paths:
     post: { summary: Disconnect an OpenAuto account, responses: { "200": { description: Disconnected } } }
   /auto/profile:
     get: { summary: Get active OpenAuto account, responses: { "200": { description: Account profile } } }
+  /auto/bootstrap:
+    get: { summary: Load vehicles and the initial live snapshot, responses: { "200": { description: Initial vehicle data } } }
   /auto/vehicles:
     get: { summary: List current vehicles, responses: { "200": { description: Vehicle list } } }
   /auto/summary:
