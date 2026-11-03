@@ -69,9 +69,8 @@ export class DirectOpenAutoProvider {
     if (!userId || !signToken || !encryToken) throw new Error("登录响应缺少会话信息");
     return { userId, superId: superId || undefined, signToken, encryToken, displayName: String(decoded.nickName || "OpenAuto 账号") };
   }
-  async vehicles() {
-    const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new OpenAutoUpstreamError(String(response.code ?? "unknown"), String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); const list = Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []; return (list as Json[]).filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") }));
-  }
+  private async rawVehicles() { const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new OpenAutoUpstreamError(String(response.code ?? "unknown"), String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); return (Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []) as Json[]; }
+  async vehicles() { return (await this.rawVehicles()).filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") })); }
   private async rawSummary(vehicleId: string) {
     const inner = { ...this.inner(), energyType: this.client("energyType", "0"), tboxVersion: this.client("tboxVersion", "3"), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("latestCondition"), built.request); if (String(response.code) !== "0") throw new Error(String(response.message || "车辆状态加载失败")); return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
@@ -99,11 +98,11 @@ export class DirectOpenAutoProvider {
     return climateTemperature(aesDecrypt(String(response.respondData || ""), built.contentKey));
   }
   async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
-    const raw = await this.rawSummary(vehicleId); const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
+    const [raw, vehicle] = await Promise.all([this.rawSummary(vehicleId), this.rawVehicles().then((items) => items.find((item) => String(item.vin) === vehicleId) || {})]); const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
     try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
     try { summary.cabinTemperatureC = await this.cabinTemperature(vehicleId) ?? summary.cabinTemperatureC; } catch { /* Climate state is optional; vehicle state remains usable. */ }
     try {
-      const overview = aggregateEnergy(await this.energyRequest("recentEnergy", vehicleId, raw));
+      const overview = aggregateEnergy(await this.energyRequest("recentEnergy", vehicleId, vehicle));
       const detailed = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
       const values = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
       return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
