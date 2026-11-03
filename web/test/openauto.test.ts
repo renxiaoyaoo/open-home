@@ -19,6 +19,7 @@ test("normalizes a vehicle-condition response without retaining provider fields"
     speed: 0,
     signalStrength: 4,
     onlineStatus: 1,
+    locationName: "测试停车位置",
     leftFrontTirepressure: 250,
     rightFrontTirepressure: 251,
     leftRearTirepressure: 248,
@@ -55,6 +56,7 @@ test("normalizes a vehicle-condition response without retaining provider fields"
     chargingPortLeftOpen: undefined,
     chargingPortRightOpen: undefined,
     cabinTemperatureC: undefined,
+    locationName: "测试停车位置",
     tirePressureKpa: { frontLeft: 250, frontRight: 251, rearLeft: 248, rearRight: 249 },
     updatedAt: undefined,
   });

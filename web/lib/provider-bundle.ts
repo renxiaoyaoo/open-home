@@ -1,7 +1,7 @@
 type AccessRoute = "login" | "profile" | "communities" | "homeItems" | "allItems" | "sortItems" | "operate" | "sms";
 type DeviceRoute = "sms" | "login" | "refresh" | "homes" | "devices" | "templateMap" | "templateGet" | "properties" | "action";
 type LockRoute = "loginToken" | "login" | "devices" | "detail" | "securityLogs" | "operationLogs" | "temporaryPasswordCount" | "temporaryPasswordCreate" | "users" | "thumbnail";
-type AutoRoute = "login" | "vehicles" | "latestCondition" | "recentEnergy" | "historicalEnergy";
+type AutoRoute = "login" | "vehicles" | "latestCondition" | "recentEnergy" | "historicalEnergy" | "location";
 
 export type ProviderBundle = {
   schemaVersion: 1;
@@ -45,7 +45,8 @@ export type ProviderBundle = {
   auto?: {
     baseUrl: string;
     client: Record<string, string>;
-    routes: Record<AutoRoute, string>;
+    routes: Record<Exclude<AutoRoute, "location">, string> & Partial<Record<"location", string>>;
+    locationResolver?: { baseUrl: string; key: string };
     codec: {
       tables: Record<string, string>;
       outerEncryptKey: string;
@@ -76,7 +77,7 @@ export function isProviderBundle(value: unknown): value is ProviderBundle {
   if (!hasStrings(access.baseUrls, ["mobile", "app", "gateway"]) || !hasStrings(access.credentials, ["appId", "appSecret", "encryptionKey", "signingKey"]) || !hasStrings(access.client, ["version", "channel", "vendor", "versionCode", "platform"]) || !hasStrings(access.routes, ["login", "profile", "communities", "homeItems", "allItems", "sortItems", "operate", "sms"]) || !Array.isArray(access.passwordModels)) return false;
   if (!hasStrings(device, ["baseUrl"]) || !hasStrings(device.credentials, ["appId", "appKey", "iotKey", "hmacKey", "deviceId"]) || !hasStrings(device.client, ["version", "secretVersion", "platformId", "clientType", "language", "source", "module"]) || !hasStrings(device.routes, ["sms", "login", "refresh", "homes", "devices", "templateMap", "templateGet", "properties", "action"]) || !hasStrings(device.properties, ["program", "power"]) || !hasStrings(device.actions, ["start", "pause", "schedule", "cancelSchedule"])) return false;
   if (lock && (!hasStrings(lock, ["baseUrl", "identityCipher"]) || !hasStrings(lock.routes, ["loginToken", "login", "devices", "detail", "securityLogs", "operationLogs", "temporaryPasswordCount", "temporaryPasswordCreate", "users", "thumbnail"]) || !hasStrings(lock.media, ["baseUrl", "route", "successPath", "successValue", "alarmThumbnailTemplate"]) || !lock.media.alarmThumbnailTemplate.startsWith("/") || lock.media.alarmThumbnailTemplate.includes("://") || !lock.media.alarmThumbnailTemplate.includes("{pictureId}") || !hasStrings(lock.fields, ["deviceId", "deviceName", "detail", "wifiName", "wifiSignal", "battery", "cameraBattery", "batteryUpdatedAt", "profileName", "logItems", "logTime", "logContent", "temporaryPasswordCount", "mediaProductId", "mediaDeviceName", "mediaEvents", "mediaEventId", "mediaEventTime", "mediaThumbnail", "signedThumbnails", "signedThumbnailUrl"]))) return false;
-  if (auto && (!hasStrings(auto, ["baseUrl"]) || !hasStrings(auto.routes, ["login", "vehicles", "latestCondition", "recentEnergy", "historicalEnergy"]) || !hasStrings(auto.codec, ["outerEncryptKey", "outerDecryptKey", "innerEncryptKey", "innerDecryptKey", "outerEncryptIv", "outerDecryptIv", "innerEncryptIv"]) || !auto.codec.tables || typeof auto.codec.tables !== "object")) return false;
+  if (auto && (!hasStrings(auto, ["baseUrl"]) || !hasStrings(auto.routes, ["login", "vehicles", "latestCondition", "recentEnergy", "historicalEnergy"]) || (auto.locationResolver && !hasStrings(auto.locationResolver, ["baseUrl", "key"])) || !hasStrings(auto.codec, ["outerEncryptKey", "outerDecryptKey", "innerEncryptKey", "innerDecryptKey", "outerEncryptIv", "outerDecryptIv", "innerEncryptIv"]) || !auto.codec.tables || typeof auto.codec.tables !== "object")) return false;
   return true;
 }
 

@@ -32,6 +32,7 @@ export type VehicleSummary = {
   chargingPortLeftOpen?: boolean;
   chargingPortRightOpen?: boolean;
   cabinTemperatureC?: number;
+  locationName?: string;
   tirePressureKpa?: { frontLeft?: number; frontRight?: number; rearLeft?: number; rearRight?: number };
   updatedAt?: string;
 };
@@ -167,6 +168,7 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     chargingPortLeftOpen: flag(raw.chargingCoverLeft, 1),
     chargingPortRightOpen: flag(raw.chargingCoverRight, 1),
     cabinTemperatureC: finite(raw.carInnerTemperature) ?? finite(raw.tempInCar) ?? finite(raw.insideTemperature),
+    locationName: text(raw.locationName) || text(raw.locationAddress) || text(raw.address) || text(raw.poiName),
     tirePressureKpa: {
       frontLeft: nonnegative(raw.leftFrontTirepressure), frontRight: nonnegative(raw.rightFrontTirepressure),
       rearLeft: nonnegative(raw.leftRearTirepressure), rearRight: nonnegative(raw.rightRearTirepressure),

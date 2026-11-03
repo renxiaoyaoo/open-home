@@ -17,6 +17,13 @@ function aesEncrypt(value: Json, key: string) { const cipher = createCipheriv("a
 function aesDecrypt(value: string, key: string) { const decipher = createDecipheriv("aes-128-cbc", Buffer.from(key, "hex"), Buffer.alloc(16)); return JSON.parse(Buffer.concat([decipher.update(Buffer.from(value, "hex")), decipher.final()]).toString("utf8")) as Json; }
 function sign(fields: Json, password: string) { const value = Object.keys(fields).sort().map((key) => `${key}=${String(fields[key])}`).join("&"); return sha1Mixed(`${value}&password=${password}`); }
 function random() { return randomBytes(16).toString("hex").toUpperCase(); }
+function finite(value: unknown) { const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN; return Number.isFinite(parsed) ? parsed : undefined; }
+function text(value: unknown) { return typeof value === "string" && value.trim() ? value.trim() : undefined; }
+function locationCoordinates(value: Json) {
+  const candidates = [value, value.data, value.result, value.location].filter((item): item is Json => Boolean(item && typeof item === "object" && !Array.isArray(item)));
+  for (const item of candidates) { const latitude = finite(item.vehicleLatitude ?? item.latitude ?? item.lat); const longitude = finite(item.vehicleLongitude ?? item.longitude ?? item.lng ?? item.lon); if (latitude !== undefined && longitude !== undefined) return { latitude, longitude }; }
+  return undefined;
+}
 
 export class DirectOpenAutoProvider {
   private readonly config = providerBundle().auto;
@@ -64,8 +71,21 @@ export class DirectOpenAutoProvider {
     if (String(response.code) !== "0") throw new Error(String(response.message || "能耗数据加载失败"));
     return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
+  private async locationName(vehicleId: string) {
+    const route = this.config!.routes.location; const resolver = this.config!.locationResolver;
+    if (!route || !resolver) return undefined;
+    const inner = { ...this.inner(), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("location"), built.request);
+    if (String(response.code) !== "0") return undefined;
+    const coordinates = locationCoordinates(aesDecrypt(String(response.respondData || ""), built.contentKey));
+    if (!coordinates) return undefined;
+    const url = new URL(resolver.baseUrl); url.searchParams.set("location", `${coordinates.latitude},${coordinates.longitude}`); url.searchParams.set("key", resolver.key); url.searchParams.set("get_poi", "1");
+    const resolved = await fetch(url, { cache: "no-store" }).then((item) => item.ok ? item.json() as Promise<Json> : undefined);
+    const result = resolved?.result as Json | undefined; const formatted = result?.formatted_addresses as Json | undefined; const pois = Array.isArray(result?.pois) ? result.pois as Json[] : [];
+    return text(formatted?.recommend) || text(pois[0]?.title) || text(result?.address);
+  }
   async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
     const raw = await this.rawSummary(vehicleId); const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
+    try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
     try {
       const [recent, historical] = await Promise.all([this.energyRequest("recentEnergy", vehicleId, raw, { type: "NEAREST_KM" }), this.energyRequest("historicalEnergy", vehicleId, raw)]);
       const detailed = normalizeDetailedVehicleEnergy(recent, historical, summary.odometerKm);
