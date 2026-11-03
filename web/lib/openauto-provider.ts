@@ -100,22 +100,25 @@ export class DirectOpenAutoProvider {
   }
   async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
     const [raw, vehicle] = await Promise.all([this.rawSummary(vehicleId), this.rawVehicles().then((items) => items.find((item) => String(item.vin) === vehicleId) || {})]); const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
-    try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
-    try { summary.cabinTemperatureC = await this.cabinTemperature(vehicleId) ?? summary.cabinTemperatureC; } catch { /* Climate state is optional; vehicle state remains usable. */ }
-    try {
-      const overviewRaw = await this.energyRequest("historicalEnergy", vehicleId, vehicle);
-      const overview = aggregateEnergy(overviewRaw); const ranked = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
-      try {
-        const detailed = normalizeDetailedVehicleEnergy(await this.energyRequest("recentEnergy", vehicleId, vehicle, { type: "NEAREST_KM" }), overview, summary.odometerKm);
-        const detailedValues = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0))) as unknown as VehicleEnergy;
-        return { summary, energy: { ...fallbackEnergy, ...ranked, ...detailedValues, rankPercent: ranked.rankPercent, cumulativeRankPercent: ranked.cumulativeRankPercent, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
-      } catch (error) {
-        console.warn("OpenAuto recent energy failed", { message: error instanceof Error ? error.message : "unknown error" });
-        return { summary, energy: { ...fallbackEnergy, ...ranked, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
-      }
-    } catch (error) {
-      console.warn("OpenAuto aggregate energy failed", { message: error instanceof Error ? error.message : "unknown error" });
+    const [location, climate, historical, recent] = await Promise.allSettled([
+      this.locationName(vehicleId),
+      this.cabinTemperature(vehicleId),
+      this.energyRequest("historicalEnergy", vehicleId, vehicle),
+      this.energyRequest("recentEnergy", vehicleId, vehicle, { type: "NEAREST_KM" }),
+    ]);
+    if (location.status === "fulfilled") summary.locationName = location.value;
+    if (climate.status === "fulfilled") summary.cabinTemperatureC = climate.value ?? summary.cabinTemperatureC;
+    if (historical.status === "rejected") {
+      console.warn("OpenAuto aggregate energy failed", { message: historical.reason instanceof Error ? historical.reason.message : "unknown error" });
       return { summary, energy: fallbackEnergy };
     }
+    const overview = aggregateEnergy(historical.value); const ranked = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
+    if (recent.status === "rejected") {
+      console.warn("OpenAuto recent energy failed", { message: recent.reason instanceof Error ? recent.reason.message : "unknown error" });
+      return { summary, energy: { ...fallbackEnergy, ...ranked, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
+    }
+    const detailed = normalizeDetailedVehicleEnergy(recent.value, overview, summary.odometerKm);
+    const detailedValues = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0))) as unknown as VehicleEnergy;
+    return { summary, energy: { ...fallbackEnergy, ...ranked, ...detailedValues, rankPercent: ranked.rankPercent, cumulativeRankPercent: ranked.cumulativeRankPercent, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
   }
 }
