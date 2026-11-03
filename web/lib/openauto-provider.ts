@@ -109,11 +109,17 @@ export class DirectOpenAutoProvider {
     try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
     try { summary.cabinTemperatureC = await this.cabinTemperature(vehicleId) ?? summary.cabinTemperatureC; } catch { /* Climate state is optional; vehicle state remains usable. */ }
     try {
-      const [overviewRaw, consumptionRaw] = await Promise.all([this.energyRequest("recentEnergy", vehicleId, vehicle), this.energyDetailsRequest(vehicleId, vehicle)]);
-      const overview = aggregateEnergy(overviewRaw); const ranked = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm); const consumption = normalizeEnergyConsumption(consumptionRaw);
-      const consumptionValues = Object.fromEntries(Object.entries(consumption).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
-      const values = Object.fromEntries(Object.entries({ ...ranked, ...consumptionValues }).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
-      return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: consumption.recentTrend.length ? consumption.recentTrend : ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
+      const overviewRaw = await this.energyRequest("recentEnergy", vehicleId, vehicle);
+      const overview = aggregateEnergy(overviewRaw); const ranked = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
+      try {
+        const consumption = normalizeEnergyConsumption(await this.energyDetailsRequest(vehicleId, vehicle));
+        const consumptionValues = Object.fromEntries(Object.entries(consumption).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
+        const values = Object.fromEntries(Object.entries({ ...ranked, ...consumptionValues }).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
+        return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: consumption.recentTrend.length ? consumption.recentTrend : ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
+      } catch (error) {
+        console.warn("OpenAuto detailed energy failed", { message: error instanceof Error ? error.message : "unknown error" });
+        return { summary, energy: { ...fallbackEnergy, ...ranked, recentTrend: ranked.recentTrend.length ? ranked.recentTrend : fallbackEnergy.recentTrend } };
+      }
     } catch (error) {
       console.warn("OpenAuto aggregate energy failed", { message: error instanceof Error ? error.message : "unknown error" });
       return { summary, energy: fallbackEnergy };
