@@ -7,7 +7,8 @@ body { margin: 0; min-width: 320px; font-family: "PingFang SC", "Noto Sans CJK S
 .font-display { font-family: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "STSong", serif; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
-.surface-card { border: 1px solid #dedbd3; border-radius: 18px; background: #fbfaf7; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid color-mix(in srgb, currentColor 55%, #fff); outline-offset: 2px; }
+.surface-card { border: 1px solid #dedbd3; border-radius: 18px; background: #fbfaf7; box-shadow: 0 8px 24px rgb(45 45 42 / .035); }
 .form-field { height: 56px; width: 100%; border: 1px solid #d8d4cb; border-radius: 10px; background: white; padding: 0 16px; outline: none; }
 .form-field:focus { border-color: #8b9380; box-shadow: 0 0 0 2px rgb(101 112 85 / .1); }
 .primary-button, .secondary-button { min-height: 44px; border-radius: 10px; padding: 0 14px; font-size: 14px; font-weight: 600; transition: transform .15s, opacity .15s; }
@@ -21,3 +22,4 @@ button { cursor: pointer; }
 .dialog-card { width: 100%; max-width: 340px; border: 1px solid #dedbd3; border-radius: 18px; background: #fbfaf7; padding: 20px; box-shadow: 0 24px 70px rgb(45 45 42 / .16); }
 .section-kicker { font-size: 11px; color: #858178; }
 .section-title { font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
