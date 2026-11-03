@@ -22,6 +22,7 @@ export type VehicleSummary = {
   securityState?: "normal" | "setting" | "active" | "unknown";
   driveMode?: "electric" | "hybrid" | "unknown";
   okIndicator?: boolean;
+  powerOutputKw?: number;
   engineCoolantC?: number;
   doorsOpen?: VehicleCornerState;
   doorsUnlocked?: VehicleCornerState;
@@ -29,8 +30,6 @@ export type VehicleSummary = {
   hoodOpen?: boolean;
   trunkOpen?: boolean;
   skylightOpen?: boolean;
-  chargingPortLeftOpen?: boolean;
-  chargingPortRightOpen?: boolean;
   cabinTemperatureC?: number;
   locationName?: string;
   tirePressureKpa?: { frontLeft?: number; frontRight?: number; rearLeft?: number; rearRight?: number };
@@ -54,6 +53,7 @@ export type EnergyTrendPoint = {
 
 export type VehicleEnergy = {
   rankPercent?: number;
+  cumulativeRankPercent?: number;
   recentDistanceKm?: number;
   equivalentFuelLitresPer100Km?: number;
   electricityKwhPer100Km?: number;
@@ -94,6 +94,14 @@ function percent(value: unknown) {
   return number !== undefined && number >= 0 && number <= 100 ? number : undefined;
 }
 
+function leadingPercent(value: RawVehicle) {
+  const direct = percent(value.rankPercent);
+  if (direct !== undefined) return direct;
+  const rank = finite(value.rank); const size = finite(value.size);
+  if (rank === undefined || size === undefined || rank <= 0 || size <= 0 || rank > size) return undefined;
+  return size === 1 ? 100 : Math.trunc(((size - rank) / (size - 1)) * 100);
+}
+
 function text(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -107,6 +115,7 @@ function chargingState(value: unknown): VehicleSummary["chargingState"] {
 }
 
 function flag(value: unknown, active: number) {
+  if (typeof value === "boolean") return value;
   const number = finite(value);
   return number === undefined ? undefined : number === active;
 }
@@ -158,16 +167,15 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     securityState: vehicleState === 0 ? "normal" : vehicleState === 1 ? "setting" : vehicleState === 2 ? "active" : "unknown",
     driveMode: driveMode === 0 ? "hybrid" : driveMode === 1 ? "electric" : "unknown",
     okIndicator: flag(raw.okLight, 1),
+    powerOutputKw: finite(raw.rate),
     engineCoolantC: finite(raw.ect) === 0 && finite(raw.ectValue) !== -1 ? finite(raw.ectValue) : undefined,
     doorsOpen: { frontLeft: flag(raw.leftFrontDoor, 1), frontRight: flag(raw.rightFrontDoor, 1), rearLeft: flag(raw.leftRearDoor, 1), rearRight: flag(raw.rightRearDoor, 1) },
     doorsUnlocked: { frontLeft: flag(raw.leftFrontDoorLock, 1), frontRight: flag(raw.rightFrontDoorLock, 1), rearLeft: flag(raw.leftRearDoorLock, 1), rearRight: flag(raw.rightRearDoorLock, 1) },
     windowsOpen: { frontLeft: flag(raw.leftFrontWindow, 2), frontRight: flag(raw.rightFrontWindow, 2), rearLeft: flag(raw.leftRearWindow, 2), rearRight: flag(raw.rightRearWindow, 2) },
     hoodOpen: flag(raw.forehold, 1),
-    trunkOpen: flag(raw.trunk, 1),
+    trunkOpen: flag(raw.trunkOpen ?? raw.trunkLid ?? raw.trunkStatus ?? raw.trunk, 1),
     skylightOpen: flag(raw.skylight, 2),
-    chargingPortLeftOpen: flag(raw.chargingCoverLeft, 1),
-    chargingPortRightOpen: flag(raw.chargingCoverRight, 1),
-    cabinTemperatureC: finite(raw.carInnerTemperature) ?? finite(raw.tempInCar) ?? finite(raw.insideTemperature),
+    cabinTemperatureC: finite(raw.tempInCar) ?? finite(raw.insideTemperature) ?? finite(raw.carInnerTemperature),
     locationName: text(raw.locationName) || text(raw.locationAddress) || text(raw.address) || text(raw.poiName),
     tirePressureKpa: {
       frontLeft: nonnegative(raw.leftFrontTirepressure), frontRight: nonnegative(raw.rightFrontTirepressure),
@@ -179,17 +187,17 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
 
 export function normalizeVehicleEnergy(raw: RawVehicle): VehicleEnergy {
   return {
-    rankPercent: percent(raw.rankPercent) ?? percent(raw.rank),
+    rankPercent: leadingPercent(raw),
     recentDistanceKm: finite(raw.recentDistanceKm) ?? finite(raw.recent50kmMileage) ?? (raw.recentlyFiftyAverageEle !== undefined || raw.recentlyFiftyAverageFuel !== undefined ? 50 : undefined),
-    equivalentFuelLitresPer100Km: positive(raw.equivalentFuelLitresPer100Km) ?? positive(raw.recent50kmEnergy) ?? positive(raw.nearestEnergyConsumption) ?? positive(raw.energyConsumption),
-    electricityKwhPer100Km: positive(raw.electricityKwhPer100Km) ?? positive(raw.recent50kmElecAverage) ?? positive(raw.recentlyFiftyAverageEle),
-    fuelLitresPer100Km: positive(raw.fuelLitresPer100Km) ?? positive(raw.recent50kmOilAverage) ?? positive(raw.recentlyFiftyAverageFuel),
-    electricityKwh: positive(raw.totalPower),
-    fuelLitres: positive(raw.totalOil),
+    equivalentFuelLitresPer100Km: nonnegative(raw.equivalentFuelLitresPer100Km) ?? nonnegative(raw.recent50kmEnergy) ?? nonnegative(raw.nearestEnergyConsumption) ?? nonnegative(raw.energyConsumption),
+    electricityKwhPer100Km: nonnegative(raw.electricityKwhPer100Km) ?? nonnegative(raw.recent50kmElecAverage) ?? nonnegative(raw.recentlyFiftyAverageEle),
+    fuelLitresPer100Km: nonnegative(raw.fuelLitresPer100Km) ?? nonnegative(raw.recent50kmOilAverage) ?? nonnegative(raw.recentlyFiftyAverageFuel),
+    electricityKwh: nonnegative(raw.totalPower),
+    fuelLitres: nonnegative(raw.totalOil),
     totalDistanceKm: finite(raw.totalDistanceKm) ?? finite(raw.totalMileage),
-    cumulativeEquivalentFuelLitresPer100Km: positive(raw.cumulativeEquivalentFuelLitresPer100Km) ?? positive(raw.totalEnergy) ?? positive(raw.totalConsumptionEn),
-    cumulativeElectricityKwhPer100Km: positive(raw.cumulativeElectricityKwhPer100Km) ?? positive(raw.totalElecAverage) ?? positive(raw.totalAverageEle),
-    cumulativeFuelLitresPer100Km: positive(raw.cumulativeFuelLitresPer100Km) ?? positive(raw.totalOilAverage) ?? positive(raw.totalAverageFuel),
+    cumulativeEquivalentFuelLitresPer100Km: nonnegative(raw.cumulativeEquivalentFuelLitresPer100Km) ?? nonnegative(raw.totalEnergy) ?? nonnegative(raw.totalConsumptionEn),
+    cumulativeElectricityKwhPer100Km: nonnegative(raw.cumulativeElectricityKwhPer100Km) ?? nonnegative(raw.totalElecAverage) ?? nonnegative(raw.totalAverageEle),
+    cumulativeFuelLitresPer100Km: nonnegative(raw.cumulativeFuelLitresPer100Km) ?? nonnegative(raw.totalOilAverage) ?? nonnegative(raw.totalAverageFuel),
     recentTrend: [],
     updatedAt: timestamp(raw.updatedAt) || timestamp(raw.updateTime) || timestamp(raw.time),
   };
@@ -204,17 +212,18 @@ export function normalizeDetailedVehicleEnergy(recent: RawVehicle, historical: R
     electricalPercent: percent(recent.elecConP), otherPercent: percent(recent.restConP),
   };
   return {
-    rankPercent: percent(recent.rankPercent) ?? percent(recent.rank),
+    rankPercent: leadingPercent(recent),
     recentDistanceKm: finite(recent.dkm) ?? 50,
-    equivalentFuelLitresPer100Km: positive(recent.avgFullCon), electricityKwhPer100Km: positive(recent.avgEvCon), fuelLitresPer100Km: positive(recent.avgOilCon),
-    electricityKwh: positive(recent.mxElect), fuelLitres: positive(recent.mxOil), costYuan: positive(recent.cost),
+    equivalentFuelLitresPer100Km: nonnegative(recent.avgFullCon), electricityKwhPer100Km: nonnegative(recent.avgEvCon), fuelLitresPer100Km: nonnegative(recent.avgOilCon),
+    electricityKwh: nonnegative(recent.mxElect), fuelLitres: nonnegative(recent.mxOil), costYuan: nonnegative(recent.cost),
     breakdown: Object.values(breakdown).some((value) => value !== undefined && value > 0) ? breakdown : undefined,
     recentTrend: trend.map((item) => item && typeof item === "object" ? {
       date: text((item as RawVehicle).date) || "", equivalentFuelLitresPer100Km: positive((item as RawVehicle).lastFee), peerAverageLitresPer100Km: positive(peer?.lastFee),
     } : { date: "" }).filter((item) => item.date),
     totalDistanceKm,
-    cumulativeEquivalentFuelLitresPer100Km: positive(sum.fee), cumulativeElectricityKwhPer100Km: positive(sum.elect), cumulativeFuelLitresPer100Km: positive(sum.fuel),
-    costPerKmYuan: positive(sum.cost), updatedAt: timestamp(recent.energyDate),
+    cumulativeRankPercent: leadingPercent(sum),
+    cumulativeEquivalentFuelLitresPer100Km: nonnegative(sum.fee), cumulativeElectricityKwhPer100Km: nonnegative(sum.elect), cumulativeFuelLitresPer100Km: nonnegative(sum.fuel),
+    costPerKmYuan: nonnegative(sum.cost), updatedAt: timestamp(recent.energyDate),
   };
 }
 

@@ -46,6 +46,7 @@ test("normalizes a vehicle-condition response without retaining provider fields"
     securityState: "unknown",
     driveMode: "unknown",
     okIndicator: undefined,
+    powerOutputKw: undefined,
     engineCoolantC: undefined,
     doorsOpen: { frontLeft: undefined, frontRight: undefined, rearLeft: undefined, rearRight: undefined },
     doorsUnlocked: { frontLeft: undefined, frontRight: undefined, rearLeft: undefined, rearRight: undefined },
@@ -53,8 +54,6 @@ test("normalizes a vehicle-condition response without retaining provider fields"
     hoodOpen: undefined,
     trunkOpen: undefined,
     skylightOpen: undefined,
-    chargingPortLeftOpen: undefined,
-    chargingPortRightOpen: undefined,
     cabinTemperatureC: undefined,
     locationName: "测试停车位置",
     tirePressureKpa: { frontLeft: 250, frontRight: 251, rearLeft: 248, rearRight: 249 },
@@ -64,17 +63,18 @@ test("normalizes a vehicle-condition response without retaining provider fields"
 
 test("normalizes the official vehicle-state and opening codes", () => {
   const summary = normalizeVehicleSummary({
-    vin: "TEST-VEHICLE", powerGear: 3, vehicleState: 1, pwr: 1, okLight: 1, ect: 0, ectValue: 82,
+    vin: "TEST-VEHICLE", powerGear: 3, vehicleState: 1, pwr: 1, okLight: 1, rate: 12, ect: 0, ectValue: 82,
     leftFrontDoor: 1, rightFrontDoor: 0, leftRearDoor: 0, rightRearDoor: 1,
     leftFrontDoorLock: 1, rightFrontDoorLock: 0, leftRearDoorLock: 0, rightRearDoorLock: 0,
     leftFrontWindow: 2, rightFrontWindow: 0, leftRearWindow: 0, rightRearWindow: 2,
-    forehold: 1, trunk: 1, skylight: 2, chargingCoverLeft: 1, chargingCoverRight: 0, carInnerTemperature: 17,
+    forehold: 1, trunkLid: 1, skylight: 2, tempInCar: 17,
     totalMileage: 8445, hevMileage: 3809, time: 1_800_000_000,
   });
   assert.equal(summary.powerState, "on");
   assert.equal(summary.securityState, "setting");
   assert.equal(summary.driveMode, "electric");
   assert.equal(summary.okIndicator, true);
+  assert.equal(summary.powerOutputKw, 12);
   assert.equal(summary.engineCoolantC, 82);
   assert.deepEqual(summary.doorsOpen, { frontLeft: true, frontRight: false, rearLeft: false, rearRight: true });
   assert.deepEqual(summary.doorsUnlocked, { frontLeft: true, frontRight: false, rearLeft: false, rearRight: false });
@@ -82,8 +82,6 @@ test("normalizes the official vehicle-state and opening codes", () => {
   assert.equal(summary.hoodOpen, true);
   assert.equal(summary.trunkOpen, true);
   assert.equal(summary.skylightOpen, true);
-  assert.equal(summary.chargingPortLeftOpen, true);
-  assert.equal(summary.chargingPortRightOpen, false);
   assert.equal(summary.cabinTemperatureC, 17);
   assert.equal(summary.evMileageKm, 4636);
   assert.equal(summary.hevMileageKm, 3809);
@@ -113,13 +111,15 @@ test("normalizes current and cumulative energy readings", () => {
 
 test("normalizes the official detailed energy responses", () => {
   const energy = normalizeDetailedVehicleEnergy({
-    dkm: "50", avgFullCon: "3.8", avgEvCon: "12.4", avgOilCon: "1.7", mxElect: "6.2", mxOil: "0.8", cost: "9.6",
+    dkm: "50", rank: 5, size: 16, avgFullCon: "3.8", avgEvCon: "12.4", avgOilCon: "1.7", mxElect: "6.2", mxOil: "0.8", cost: "9.6",
     driveConP: 52, acConP: 18, elecConP: 11, restConP: 19, energyDate: "2026-11-02 20:10:00",
   }, {
     firstRecentList: [{ lastFee: "4.6" }], selfList: [{ date: "2026-11-01", lastFee: "4.1" }, { date: "2026-11-02", lastFee: "3.8" }],
-    sumOilData: { fee: "4.3", elect: "13.2", fuel: "2.1", cost: "0.19" },
+    sumOilData: { rank: 3, size: 4, fee: "4.3", elect: "13.2", fuel: "2.1", cost: "0.19" },
   }, 24000);
   assert.equal(energy.costYuan, 9.6);
+  assert.equal(energy.rankPercent, 73);
+  assert.equal(energy.cumulativeRankPercent, 33);
   assert.deepEqual(energy.breakdown, { propulsionPercent: 52, climatePercent: 18, electricalPercent: 11, otherPercent: 19 });
   assert.deepEqual(energy.recentTrend, [
     { date: "2026-11-01", equivalentFuelLitresPer100Km: 4.1, peerAverageLitresPer100Km: 4.6 },
@@ -139,14 +139,14 @@ test("drops provider sentinel values from vehicle state", () => {
   assert.equal(summary.engineCoolantC, undefined);
 });
 
-test("derives combined range and omits empty energy readings", () => {
+test("derives combined range and preserves valid zero energy readings", () => {
   const summary = normalizeVehicleSummary({ vin: "TEST-VEHICLE", evEndurance: 78, oilEndurance: 698 });
   assert.equal(summary.estimatedRangeKm, 776);
   const energy = normalizeDetailedVehicleEnergy({ avgFullCon: 0, avgEvCon: "0", avgOilCon: 0, mxElect: 0, mxOil: 0, cost: 0 }, { sumOilData: { fee: 0, elect: 0, fuel: 0, cost: 0 } }, 8445);
-  assert.equal(energy.equivalentFuelLitresPer100Km, undefined);
-  assert.equal(energy.electricityKwhPer100Km, undefined);
-  assert.equal(energy.fuelLitresPer100Km, undefined);
-  assert.equal(energy.costYuan, undefined);
+  assert.equal(energy.equivalentFuelLitresPer100Km, 0);
+  assert.equal(energy.electricityKwhPer100Km, 0);
+  assert.equal(energy.fuelLitresPer100Km, 0);
+  assert.equal(energy.costYuan, 0);
   assert.equal(energy.totalDistanceKm, 8445);
 });
 

@@ -24,6 +24,11 @@ function locationCoordinates(value: Json) {
   for (const item of candidates) { const latitude = finite(item.vehicleLatitude ?? item.latitude ?? item.lat); const longitude = finite(item.vehicleLongitude ?? item.longitude ?? item.lng ?? item.lon); if (latitude !== undefined && longitude !== undefined) return { latitude, longitude }; }
   return undefined;
 }
+function climateTemperature(value: Json) {
+  const candidates = [value, value.data, value.result, value.statusNow].filter((item): item is Json => Boolean(item && typeof item === "object" && !Array.isArray(item)));
+  for (const item of candidates) { const temperature = finite(item.tempInCar ?? item.insideTemperature ?? item.carInnerTemperature); if (temperature !== undefined && ![-999, -9999].includes(temperature)) return temperature; }
+  return undefined;
+}
 
 export class DirectOpenAutoProvider {
   private readonly config = providerBundle().auto;
@@ -83,9 +88,15 @@ export class DirectOpenAutoProvider {
     const result = resolved?.result as Json | undefined; const formatted = result?.formatted_addresses as Json | undefined; const pois = Array.isArray(result?.pois) ? result.pois as Json[] : [];
     return text(formatted?.recommend) || text(pois[0]?.title) || text(result?.address);
   }
+  private async cabinTemperature(vehicleId: string) {
+    const inner = { ...this.inner(), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("climateStatus"), built.request);
+    if (String(response.code) !== "0") return undefined;
+    return climateTemperature(aesDecrypt(String(response.respondData || ""), built.contentKey));
+  }
   async summary(vehicleId: string): Promise<OpenAutoSnapshot> {
     const raw = await this.rawSummary(vehicleId); const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
     try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
+    try { summary.cabinTemperatureC = await this.cabinTemperature(vehicleId) ?? summary.cabinTemperatureC; } catch { /* Climate state is optional; vehicle state remains usable. */ }
     try {
       const [recent, historical] = await Promise.all([this.energyRequest("recentEnergy", vehicleId, raw, { type: "NEAREST_KM" }), this.energyRequest("historicalEnergy", vehicleId, raw)]);
       const detailed = normalizeDetailedVehicleEnergy(recent, historical, summary.odometerKm);
