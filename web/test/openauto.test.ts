@@ -150,6 +150,28 @@ test("derives combined range and preserves valid zero energy readings", () => {
   assert.equal(energy.totalDistanceKm, 8445);
 });
 
+test("normalizes the current aggregate range, health, and energy contracts", () => {
+  const summary = normalizeVehicleSummary({
+    vin: "TEST-VEHICLE", totalEnduranceMileage: 776, batteryEnduranceMileage: 78, oilEnduranceMileage: 698,
+    engineStatus: 0, brakingSystem: 0, abs: 0, srs: 0, tirepressureSystem: 0, esp: 0,
+    steeringSystem: 0, ect: 0, oilPressureSystem: 0, chargingSystem: 0, powerBattery: 0, powerSystem: 0,
+  });
+  assert.equal(summary.estimatedRangeKm, 776);
+  assert.equal(summary.electricRangeKm, 78);
+  assert.equal(summary.fuelRangeKm, 698);
+  assert.ok(Object.values(summary.health || {}).every((value) => value === "normal"));
+
+  const energy = normalizeDetailedVehicleEnergy({
+    recentOilData: { rank: 5, size: 16, fee: 3.6, elect: 12.9, fuel: 0 },
+    sumOilData: { rank: 3, size: 4, fee: 4.6, elect: 4.7, fuel: 3.3, cost: 0.2 },
+    selfList: [{ date: "2026-11-02", lastFee: 3.6 }], firstRecentList: [{ date: "2026-11-02", lastFee: 4.5 }],
+  }, undefined, 8445);
+  assert.equal(energy.rankPercent, 73);
+  assert.equal(energy.equivalentFuelLitresPer100Km, 3.6);
+  assert.equal(energy.cumulativeEquivalentFuelLitresPer100Km, 4.6);
+  assert.equal(energy.recentTrend[0]?.peerAverageLitresPer100Km, 4.5);
+});
+
 test("rejects a response without a stable vehicle identity", () => {
   assert.throws(() => normalizeVehicleSummary({ elecPercent: 50 }), /identifier/i);
 });

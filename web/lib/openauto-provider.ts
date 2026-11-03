@@ -98,8 +98,8 @@ export class DirectOpenAutoProvider {
     try { summary.locationName = await this.locationName(vehicleId); } catch { /* Location is optional; vehicle state remains usable. */ }
     try { summary.cabinTemperatureC = await this.cabinTemperature(vehicleId) ?? summary.cabinTemperatureC; } catch { /* Climate state is optional; vehicle state remains usable. */ }
     try {
-      const [recent, historical] = await Promise.all([this.energyRequest("recentEnergy", vehicleId, raw, { type: "NEAREST_KM" }), this.energyRequest("historicalEnergy", vehicleId, raw)]);
-      const detailed = normalizeDetailedVehicleEnergy(recent, historical, summary.odometerKm);
+      const overview = await this.energyRequest("recentEnergy", vehicleId, raw);
+      const detailed = normalizeDetailedVehicleEnergy(overview, overview, summary.odometerKm);
       const values = Object.fromEntries(Object.entries(detailed).filter(([, value]) => value !== undefined)) as unknown as VehicleEnergy;
       return { summary, energy: { ...fallbackEnergy, ...values, recentTrend: detailed.recentTrend.length ? detailed.recentTrend : fallbackEnergy.recentTrend } };
     } catch {

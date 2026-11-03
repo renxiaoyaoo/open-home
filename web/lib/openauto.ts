@@ -1,5 +1,6 @@
 export type VehiclePowerState = "off" | "on" | "unknown";
 export type VehicleCornerState = { frontLeft?: boolean; frontRight?: boolean; rearLeft?: boolean; rearRight?: boolean };
+export type VehicleHealthState = "normal" | "warning" | "unknown";
 
 export type VehicleSummary = {
   id: string;
@@ -24,6 +25,7 @@ export type VehicleSummary = {
   okIndicator?: boolean;
   powerOutputKw?: number;
   engineCoolantC?: number;
+  health?: Record<string, VehicleHealthState>;
   doorsOpen?: VehicleCornerState;
   doorsUnlocked?: VehicleCornerState;
   windowsOpen?: VehicleCornerState;
@@ -76,7 +78,6 @@ export interface OpenAutoProvider {
   getVehicleSummary(vehicleId: string): Promise<VehicleSummary>;
   getVehicleEnergy(vehicleId: string): Promise<VehicleEnergy>;
 }
-
 type RawVehicle = Record<string, unknown>;
 
 function finite(value: unknown) {
@@ -120,6 +121,14 @@ function flag(value: unknown, active: number) {
   return number === undefined ? undefined : number === active;
 }
 
+function healthState(value: unknown): VehicleHealthState {
+  const number = finite(value);
+  if (number === 0) return "normal";
+  if (number !== undefined && number > 0) return "warning";
+  const state = String(value ?? "").toLowerCase();
+  return ["normal", "ok"].includes(state) ? "normal" : ["warning", "error", "fault"].includes(state) ? "warning" : "unknown";
+}
+
 function timestamp(value: unknown) {
   const stringValue = text(value);
   if (stringValue) return stringValue;
@@ -144,13 +153,19 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
   const totalMileage = nonnegative(raw.totalMileage);
   const hevMileage = nonnegative(raw.hevMileage);
   const reportedEvMileage = nonnegative(raw.evMileage);
-  const electricRangeKm = nonnegative(raw.evEndurance);
-  const fuelRangeKm = nonnegative(raw.oilEndurance);
+  const electricRangeKm = nonnegative(raw.evEndurance) ?? nonnegative(raw.batteryEnduranceMileage);
+  const fuelRangeKm = nonnegative(raw.oilEndurance) ?? nonnegative(raw.oilEnduranceMileage);
+  const health = {
+    engine: healthState(raw.engineStatus), braking: healthState(raw.brakingSystem), abs: healthState(raw.abs), srs: healthState(raw.srs),
+    tirePressure: healthState(raw.tirepressureSystem), stability: healthState(raw.esp), steering: healthState(raw.steeringSystem),
+    coolant: healthState(raw.ect), oilPressure: healthState(raw.oilPressureSystem), lowVoltage: healthState(raw.chargingSystem),
+    tractionBattery: healthState(raw.powerBattery), powertrain: healthState(raw.powerSystem),
+  };
   return {
     id,
     name: text(raw.name) || text(raw.vehicleName) || text(raw.modelName) || "车辆",
     powerState: powerGear === 3 || ["1", "on", "running"].includes(power) ? "on" : powerGear === 1 || ["0", "off", "stopped"].includes(power) ? "off" : "unknown",
-    estimatedRangeKm: nonnegative(raw.enduranceMileage) ?? (electricRangeKm !== undefined && fuelRangeKm !== undefined ? electricRangeKm + fuelRangeKm : undefined),
+    estimatedRangeKm: nonnegative(raw.totalEnduranceMileage) ?? nonnegative(raw.enduranceMileage) ?? (electricRangeKm !== undefined && fuelRangeKm !== undefined ? electricRangeKm + fuelRangeKm : undefined),
     electricRangeKm,
     fuelRangeKm,
     tractionBatteryPercent: percent(raw.elecPercent),
@@ -169,6 +184,7 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
     okIndicator: flag(raw.okLight, 1),
     powerOutputKw: finite(raw.rate),
     engineCoolantC: finite(raw.ect) === 0 && finite(raw.ectValue) !== -1 ? finite(raw.ectValue) : undefined,
+    ...(Object.values(health).some((value) => value !== "unknown") ? { health } : {}),
     doorsOpen: { frontLeft: flag(raw.leftFrontDoor, 1), frontRight: flag(raw.rightFrontDoor, 1), rearLeft: flag(raw.leftRearDoor, 1), rearRight: flag(raw.rightRearDoor, 1) },
     doorsUnlocked: { frontLeft: flag(raw.leftFrontDoorLock, 1), frontRight: flag(raw.rightFrontDoorLock, 1), rearLeft: flag(raw.leftRearDoorLock, 1), rearRight: flag(raw.rightRearDoorLock, 1) },
     windowsOpen: { frontLeft: flag(raw.leftFrontWindow, 2), frontRight: flag(raw.rightFrontWindow, 2), rearLeft: flag(raw.leftRearWindow, 2), rearRight: flag(raw.rightRearWindow, 2) },
@@ -203,10 +219,12 @@ export function normalizeVehicleEnergy(raw: RawVehicle): VehicleEnergy {
   };
 }
 
-export function normalizeDetailedVehicleEnergy(recent: RawVehicle, historical: RawVehicle, totalDistanceKm?: number): VehicleEnergy {
+export function normalizeDetailedVehicleEnergy(recentInput: RawVehicle, historicalInput: RawVehicle = recentInput, totalDistanceKm?: number): VehicleEnergy {
+  const recent = recentInput.recentOilData && typeof recentInput.recentOilData === "object" ? recentInput.recentOilData as RawVehicle : recentInput;
+  const historical = historicalInput;
   const sum = historical.sumOilData && typeof historical.sumOilData === "object" ? historical.sumOilData as RawVehicle : {};
   const trend = Array.isArray(historical.selfList) ? historical.selfList : [];
-  const peer = Array.isArray(historical.firstRecentList) ? historical.firstRecentList[0] as RawVehicle | undefined : undefined;
+  const peers = Array.isArray(historical.firstRecentList) ? historical.firstRecentList as RawVehicle[] : [];
   const breakdown = {
     propulsionPercent: percent(recent.driveConP), climatePercent: percent(recent.acConP),
     electricalPercent: percent(recent.elecConP), otherPercent: percent(recent.restConP),
@@ -214,20 +232,15 @@ export function normalizeDetailedVehicleEnergy(recent: RawVehicle, historical: R
   return {
     rankPercent: leadingPercent(recent),
     recentDistanceKm: finite(recent.dkm) ?? 50,
-    equivalentFuelLitresPer100Km: nonnegative(recent.avgFullCon), electricityKwhPer100Km: nonnegative(recent.avgEvCon), fuelLitresPer100Km: nonnegative(recent.avgOilCon),
+    equivalentFuelLitresPer100Km: nonnegative(recent.avgFullCon) ?? nonnegative(recent.fee), electricityKwhPer100Km: nonnegative(recent.avgEvCon) ?? nonnegative(recent.elect), fuelLitresPer100Km: nonnegative(recent.avgOilCon) ?? nonnegative(recent.fuel),
     electricityKwh: nonnegative(recent.mxElect), fuelLitres: nonnegative(recent.mxOil), costYuan: nonnegative(recent.cost),
     breakdown: Object.values(breakdown).some((value) => value !== undefined && value > 0) ? breakdown : undefined,
-    recentTrend: trend.map((item) => item && typeof item === "object" ? {
-      date: text((item as RawVehicle).date) || "", equivalentFuelLitresPer100Km: positive((item as RawVehicle).lastFee), peerAverageLitresPer100Km: positive(peer?.lastFee),
+    recentTrend: trend.map((item, index) => item && typeof item === "object" ? {
+      date: text((item as RawVehicle).date) || text((item as RawVehicle).energyDate) || "", equivalentFuelLitresPer100Km: nonnegative((item as RawVehicle).lastFee) ?? nonnegative((item as RawVehicle).fee), peerAverageLitresPer100Km: nonnegative(peers[index]?.lastFee) ?? nonnegative(peers[index]?.fee) ?? nonnegative(peers[0]?.lastFee) ?? nonnegative(peers[0]?.fee),
     } : { date: "" }).filter((item) => item.date),
     totalDistanceKm,
     cumulativeRankPercent: leadingPercent(sum),
     cumulativeEquivalentFuelLitresPer100Km: nonnegative(sum.fee), cumulativeElectricityKwhPer100Km: nonnegative(sum.elect), cumulativeFuelLitresPer100Km: nonnegative(sum.fuel),
     costPerKmYuan: nonnegative(sum.cost), updatedAt: timestamp(recent.energyDate),
   };
-}
-
-function positive(value: unknown) {
-  const number = finite(value);
-  return number !== undefined && number > 0 ? number : undefined;
 }
