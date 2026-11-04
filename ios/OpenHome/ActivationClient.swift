@@ -11,6 +11,7 @@ struct ActivationClient: Sendable {
         guard package.hasPrefix("oh1."), let encoded = package.split(separator: ".", maxSplits: 1).last,
               let data = Data(base64URLEncoded: String(encoded)) else { throw ActivationError.invalidCode }
         let payload = try JSONDecoder().decode(Payload.self, from: data)
+        guard payload.baseURL.scheme == "https" || (payload.baseURL.scheme == "http" && ["localhost", "127.0.0.1"].contains(payload.baseURL.host)) else { throw ActivationError.invalidCode }
         var request = URLRequest(url: payload.baseURL.appending(path: "client/activate"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")

@@ -27,10 +27,31 @@ struct APIClient: Sendable {
         request.setValue("Bearer \(try credential())", forHTTPHeaderField: "Authorization")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else { throw URLError(.userAuthenticationRequired) }
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard 200..<300 ~= http.statusCode else {
+            let message = (try? JSONDecoder().decode(ErrorEnvelope.self, from: data))?.message
+            if http.statusCode == 401 || http.statusCode == 403 { throw APIError.unauthorized }
+            throw APIError.server(status: http.statusCode, message: message)
+        }
         return try JSONDecoder.openHome.decode(Response.self, from: data)
     }
 }
+
+enum APIError: LocalizedError {
+    case unauthorized
+    case invalidResponse
+    case server(status: Int, message: String?)
+
+    var errorDescription: String? {
+        switch self {
+        case .unauthorized: "OpenHome 连接已失效，请重新连接"
+        case .invalidResponse: "OpenHome 返回了无法识别的响应"
+        case .server(let status, let message): message ?? "OpenHome 请求失败（\(status)）"
+        }
+    }
+}
+
+private struct ErrorEnvelope: Decodable { let message: String? }
 
 private extension JSONDecoder {
     static var openHome: JSONDecoder {
