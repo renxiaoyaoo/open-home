@@ -15,7 +15,6 @@ test/
 !/web/test/
 !/web/test/**
 android/
-ios/
 lib/
 !/web/lib/
 !/web/lib/**
