@@ -1,6 +1,7 @@
 import Foundation
 
 protocol ProviderFactory: Sendable {
+    func gateProvider() throws -> any GateProvider
     func dryerProvider() throws -> any HomeProvider<DryerSnapshot>
     func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot>
 }
@@ -8,6 +9,10 @@ protocol ProviderFactory: Sendable {
 struct RemoteProviderFactory: ProviderFactory {
     let baseURL: URL
     let credential: @Sendable () throws -> String
+
+    func gateProvider() throws -> any GateProvider {
+        RemoteGateProvider(client: APIClient(baseURL: baseURL, credential: credential))
+    }
 
     func dryerProvider() throws -> any HomeProvider<DryerSnapshot> {
         RemoteDryerProvider(client: APIClient(baseURL: baseURL, credential: credential))
@@ -21,15 +26,18 @@ struct RemoteProviderFactory: ProviderFactory {
 struct DirectProviderFactory: ProviderFactory {
     let registry: DirectProviderRegistry
 
+    func gateProvider() throws -> any GateProvider { try registry.gate() }
     func dryerProvider() throws -> any HomeProvider<DryerSnapshot> { try registry.dryer() }
     func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> { try registry.vehicle() }
 }
 
 struct DirectProviderRegistry: Sendable {
+    var gate: @Sendable () throws -> any GateProvider
     var dryer: @Sendable () throws -> any HomeProvider<DryerSnapshot>
     var vehicle: @Sendable () throws -> any HomeProvider<VehicleSnapshot>
 
     static let unconfigured = Self(
+        gate: { throw ProviderError.notInstalled(.gate) },
         dryer: { throw ProviderError.notInstalled(.living) },
         vehicle: { throw ProviderError.notInstalled(.auto) }
     )

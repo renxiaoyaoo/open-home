@@ -19,6 +19,32 @@ enum ProviderID: String, Codable, CaseIterable, Sendable {
     case auto
 }
 
+struct GateResource: Codable, Sendable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let communityName: String?
+    let passwordSupported: Bool
+    let providerFeatured: Bool
+    let selected: Bool
+    let refreshedAt: Int64
+}
+
+struct GatePassword: Codable, Sendable, Equatable {
+    let password: String
+    let validUntil: Date
+}
+
+struct OperationResult: Codable, Sendable, Equatable {
+    let ok: Bool
+    let message: String
+}
+
+protocol GateProvider: Sendable {
+    func resources() async throws -> [GateResource]
+    func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult
+    func password(resourceID: String) async throws -> GatePassword
+}
+
 protocol HomeProvider<Snapshot>: Sendable {
     associatedtype Snapshot: Sendable
     func snapshot() async throws -> Snapshot

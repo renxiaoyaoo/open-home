@@ -10,7 +10,7 @@ struct RootView: View {
                 moduleSwitcher
                 Group {
                     if model.connection == nil { ConnectionSetupView() }
-                    else { ModulePlaceholder(module: model.selectedModule) }
+                    else { connectedContent }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -18,6 +18,12 @@ struct RootView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(.openHomeAccent)
+    }
+
+    @ViewBuilder private var connectedContent: some View {
+        if model.selectedModule == .gate, let url = model.connection?.centerURL {
+            GateView(provider: RemoteGateProvider(client: APIClient(baseURL: url, credential: { try ConnectionStore().centerToken() })))
+        } else { ModulePlaceholder(module: model.selectedModule) }
     }
 
     private var moduleSwitcher: some View {
@@ -64,7 +70,7 @@ private struct ConnectionSetupView: View {
                     Image(systemName: mode == .center ? "house.and.flag" : "iphone.gen3").font(.title2).foregroundStyle(Color.openHomeAccent)
                     Text(mode == .center ? "连接自己的 OpenHome" : "直接连接设备服务").font(.title2.bold())
                     if mode == .center {
-                        TextField("激活码", text: $activationCode).textInputAutocapitalization(.characters).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                        TextField("激活码", text: $activationCode).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
                         Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.isEmpty || isActivating)
                         if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
                     } else {
