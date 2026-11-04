@@ -24,7 +24,7 @@ struct RootView: View {
         if model.connection?.enabledProviders.contains(model.selectedModule.providerID) != true {
             ModuleUnavailableView(module: model.selectedModule, message: "此模块未启用")
         } else if let factory = model.providerFactory() {
-            ProviderModuleView(module: model.selectedModule, factory: factory)
+            ProviderModuleView(module: model.selectedModule, factory: factory, directRegistry: model.connection?.mode == .direct ? model.directProviders : nil)
         } else {
             ModuleUnavailableView(module: model.selectedModule, message: "连接配置不可用")
         }
@@ -119,6 +119,8 @@ private struct ConnectionSetupView: View {
 private struct ProviderModuleView: View {
     let module: AppModel.Module
     let factory: any ProviderFactory
+    let directRegistry: DirectProviderRegistry?
+    @State private var authenticationRevision = 0
 
     @ViewBuilder
     var body: some View {
@@ -136,7 +138,75 @@ private struct ProviderModuleView: View {
 
     private func resolved<Content: View>(content: () throws -> Content) -> AnyView {
         do { return AnyView(try content()) }
-        catch { return AnyView(ModuleUnavailableView(module: module, message: error.localizedDescription)) }
+        catch ProviderError.authenticationRequired {
+            guard let authenticator = try? directRegistry?.authenticator(module.providerID) else {
+                return AnyView(ModuleUnavailableView(module: module, message: "登录组件不可用"))
+            }
+            return AnyView(DirectLoginView(module: module, authenticator: authenticator) { authenticationRevision += 1 }.id(authenticationRevision))
+        } catch {
+            return AnyView(ModuleUnavailableView(module: module, message: error.localizedDescription))
+        }
+    }
+}
+
+private struct DirectLoginView: View {
+    let module: AppModel.Module
+    let authenticator: any DirectProviderAuthenticator
+    let onAuthenticated: () -> Void
+    @State private var account = ""
+    @State private var secret = ""
+    @State private var method: DirectLoginMethod
+    @State private var isBusy = false
+    @State private var message: String?
+
+    init(module: AppModel.Module, authenticator: any DirectProviderAuthenticator, onAuthenticated: @escaping () -> Void) {
+        self.module = module
+        self.authenticator = authenticator
+        self.onAuthenticated = onAuthenticated
+        _method = State(initialValue: authenticator.configuration.methods.first ?? .password)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Image(systemName: module.symbol).font(.title2).foregroundStyle(Color.openHomeAccent)
+                Text("登录 \(module.rawValue)").font(.title2.bold())
+                if authenticator.configuration.methods.count > 1 {
+                    Picker("登录方式", selection: $method) {
+                        ForEach(authenticator.configuration.methods) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented)
+                }
+                TextField(authenticator.configuration.accountLabel, text: $account)
+                    .textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    SecureField(method == .password ? "密码" : "验证码", text: $secret).textContentType(method == .password ? .password : .oneTimeCode).textFieldStyle(.roundedBorder)
+                    if method == .verificationCode {
+                        Button("获取验证码") { Task { await requestCode() } }.buttonStyle(.bordered).disabled(account.isEmpty || isBusy)
+                    }
+                }
+                Button(isBusy ? "正在登录…" : "登录") { Task { await signIn() } }.buttonStyle(OpenHomePrimaryButton()).disabled(account.isEmpty || secret.isEmpty || isBusy)
+                if let message { Text(message).font(.caption).foregroundStyle(.red) }
+            }.padding(20).background(.white, in: RoundedRectangle(cornerRadius: 18)).padding(14).frame(maxWidth: 520)
+        }
+    }
+
+    @MainActor private func requestCode() async {
+        isBusy = true; message = nil
+        defer { isBusy = false }
+        do { try await authenticator.requestVerificationCode(account: account) }
+        catch { message = error.localizedDescription }
+    }
+
+    @MainActor private func signIn() async {
+        isBusy = true; message = nil
+        defer { isBusy = false }
+        do {
+            let session = try await authenticator.signIn(account: account, secret: secret, method: method)
+            try DirectSessionStore().save(session, provider: module.providerID)
+            secret = ""
+            onAuthenticated()
+        }
+        catch { message = error.localizedDescription }
     }
 }
 
