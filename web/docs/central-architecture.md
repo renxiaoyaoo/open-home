@@ -56,6 +56,13 @@ latest encrypted session before refreshing. This works through the shared databa
 port on SQLite and D1, survives stateless instance replacement, and does not
 serialize or cache ordinary real-time reads. It deliberately has no dependency on
 Cloudflare Durable Objects or process memory.
+
+Native Live Activities register revocable device-scoped push targets in the
+shared storage port. A transport-neutral refresh use case reads only registered
+dryer or vehicle resources, normalizes their live state, suppresses unchanged
+updates, and publishes through a replaceable APNs transport. Deployment adapters
+only schedule the authenticated refresh endpoint; they do not own state or
+provider logic.
 The encryption key is deployment identity and must survive ordinary releases; access-boundary cookies
 remain hostname-scoped and require an explicit migration or reauthentication
 when the hostname changes.

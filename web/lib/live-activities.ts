@@ -47,7 +47,16 @@ export async function removeLiveActivityTarget(rawActivityId: unknown) {
   await (await getDb()).prepare("DELETE FROM live_activities WHERE activity_id=?").bind(activityId).run();
 }
 
+export async function markLiveActivityPushed(rawActivityId: unknown, stateHash: string) {
+  const activityId = identifier(rawActivityId, "Live Activity ID");
+  await (await getDb()).prepare("UPDATE live_activities SET last_state_hash=?,last_pushed_at=? WHERE activity_id=?").bind(stateHash, Date.now(), activityId).run();
+}
+
+export async function liveActivityResources() {
+  return (await (await getDb()).prepare("SELECT DISTINCT l.provider,l.resource_id AS resourceId FROM live_activities l JOIN client_devices d ON d.id=l.device_id WHERE d.revoked_at IS NULL ORDER BY l.provider,l.resource_id").all<{ provider: LiveActivityProvider; resourceId: string }>()).results;
+}
+
 export async function liveActivityTargets(providerId: LiveActivityProvider, resourceId: string) {
-  const rows = (await (await getDb()).prepare("SELECT l.activity_id AS activityId,l.push_token AS pushToken,l.environment FROM live_activities l JOIN client_devices d ON d.id=l.device_id WHERE l.provider=? AND l.resource_id=? AND d.revoked_at IS NULL").bind(providerId, resourceId).all<{ activityId: string; pushToken: string; environment: LiveActivityEnvironment }>()).results;
-  return rows.map((row) => ({ activityId: row.activityId, pushToken: row.pushToken, environment: row.environment }));
+  const rows = (await (await getDb()).prepare("SELECT l.activity_id AS activityId,l.push_token AS pushToken,l.environment,l.last_state_hash AS lastStateHash FROM live_activities l JOIN client_devices d ON d.id=l.device_id WHERE l.provider=? AND l.resource_id=? AND d.revoked_at IS NULL").bind(providerId, resourceId).all<{ activityId: string; pushToken: string; environment: LiveActivityEnvironment; lastStateHash: string | null }>()).results;
+  return rows.map((row) => ({ activityId: row.activityId, pushToken: row.pushToken, environment: row.environment, lastStateHash: row.lastStateHash }));
 }

@@ -13,6 +13,12 @@ function legacyCookie(request: Request) { return request.headers.get("cookie")?.
 async function storedSession(request: Request, accountId?: string) { try { return { ...(await loadProviderSession<OpenDeviceSession>("opendevice", accountId)), migrated: false }; } catch (error) { const raw = legacyCookie(request); if (!raw || accountId) throw error; const session = openSession<OpenDeviceSession>(decodeURIComponent(raw)); const id = await saveProviderSession("opendevice", `od-${randomUUID()}`, "", session.displayName || null, session); return { accountId: id, session, migrated: true }; } }
 function clearLegacy(response: Response) { response.headers.append("set-cookie", `${LEGACY_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`); return response; }
 
+export async function readDryerStatus(deviceId: string, accountId?: string) {
+  const stored = await loadProviderSession<OpenDeviceSession>("opendevice", accountId);
+  const client = new OpenDeviceProvider(stored.session, (staleAccessToken, refresh) => refreshProviderSession("opendevice", stored.accountId, staleAccessToken, async () => ({ ...stored.session, ...await refresh() })));
+  return await client.status(id(deviceId, "设备"));
+}
+
 export async function callDryerAdapter(operation: DryerOperation, request: Request) {
   await assertClientAccess(request);
   const expected = OPERATIONS[operation]; if (request.method !== expected) return Response.json({ ok: false, message: "请求方法不支持" }, { status: 405 });

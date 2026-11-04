@@ -16,7 +16,8 @@
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "activation:create": "node scripts/create-activation.mjs"
+    "activation:create": "node scripts/create-activation.mjs",
+    "live-activities:refresh": "node scripts/refresh-live-activities.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

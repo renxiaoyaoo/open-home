@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { assertClientAccess, loadProviderSession, removeProviderAccount, saveProviderSession } from "./central";
 import { DirectOpenAutoProvider, type OpenAutoSession } from "./openauto-provider";
 
+export async function readOpenAutoStatus(vehicleId: string, accountId?: string) {
+  if (!vehicleId) throw new Error("缺少车辆标识");
+  const stored = await loadProviderSession<OpenAutoSession>("openauto", accountId);
+  return await new DirectOpenAutoProvider(stored.session).liveStatus(vehicleId);
+}
+
 export async function callOpenAuto(operation: string, request: Request) {
   await assertClientAccess(request);
   if (operation === "login") {

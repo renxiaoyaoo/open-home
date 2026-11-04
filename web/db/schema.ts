@@ -47,6 +47,8 @@ export const liveActivities = sqliteTable("live_activities", {
   resourceId: text("resource_id").notNull(),
   pushToken: text("push_token").notNull(),
   environment: text("environment").notNull(),
+  lastStateHash: text("last_state_hash"),
+  lastPushedAt: integer("last_pushed_at"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [uniqueIndex("live_activities_device_resource").on(table.deviceId, table.provider, table.resourceId)]);

@@ -1,5 +1,5 @@
-import { sign } from "node:crypto";
-import { liveActivityTargets, removeLiveActivityTarget, type LiveActivityEnvironment, type LiveActivityProvider } from "./live-activities.ts";
+import { createHash, sign } from "node:crypto";
+import { liveActivityTargets, markLiveActivityPushed, removeLiveActivityTarget, type LiveActivityEnvironment, type LiveActivityProvider } from "./live-activities.ts";
 
 const APPLE_REFERENCE_DATE_OFFSET = 978_307_200;
 
@@ -88,10 +88,13 @@ export function apnsLiveActivityRequest(configuration: APNsConfiguration, enviro
 
 export async function publishLiveActivity(provider: LiveActivityProvider, resourceId: string, state: LiveActivityState, event: "update" | "end", configuration: APNsConfiguration, transport: LiveActivityPushTransport) {
   const targets = await liveActivityTargets(provider, resourceId);
+  const stateHash = createHash("sha256").update(JSON.stringify({ event, state: { ...state, expectedEnd: state.expectedEnd?.toISOString() ?? null } })).digest("hex");
   const results = await Promise.all(targets.map(async (target) => {
+    if (event === "update" && target.lastStateHash === stateHash) return { activityId: target.activityId, status: 304, skipped: true };
     const result = await transport.send(apnsLiveActivityRequest(configuration, target.environment, target.pushToken, state, event));
-    if (result.status === 410 || result.reason === "BadDeviceToken" || result.reason === "Unregistered") await removeLiveActivityTarget(target.activityId);
-    return { activityId: target.activityId, ...result };
+    if (result.status === 410 || result.reason === "BadDeviceToken" || result.reason === "Unregistered" || (event === "end" && result.status >= 200 && result.status < 300)) await removeLiveActivityTarget(target.activityId);
+    else if (result.status >= 200 && result.status < 300) await markLiveActivityPushed(target.activityId, stateHash);
+    return { activityId: target.activityId, ...result, skipped: false };
   }));
   return results;
 }

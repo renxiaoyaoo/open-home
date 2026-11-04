@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -43,9 +44,18 @@ test("consumes a self-contained activation once and authenticates the issued dev
   const { liveActivityTargets, registerLiveActivity, unregisterLiveActivity } = await import("../lib/live-activities.ts");
   const token = "ab".repeat(32);
   await registerLiveActivity(device.deviceID, { activityId: "activity-1", provider: "living", resourceId: "dryer-1", pushToken: token, environment: "sandbox" });
-  assert.deepEqual(await liveActivityTargets("living", "dryer-1"), [{ activityId: "activity-1", pushToken: token, environment: "sandbox" }]);
+  assert.deepEqual(await liveActivityTargets("living", "dryer-1"), [{ activityId: "activity-1", pushToken: token, environment: "sandbox", lastStateHash: null }]);
   await registerLiveActivity(device.deviceID, { activityId: "activity-2", provider: "living", resourceId: "dryer-1", pushToken: "cd".repeat(32), environment: "sandbox" });
   assert.deepEqual((await liveActivityTargets("living", "dryer-1")).map(({ activityId }) => activityId), ["activity-2"]);
+  const { publishLiveActivity } = await import("../lib/live-activity-push.ts");
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const configuration = { keyId: "ABC123DEFG", teamId: "DEF123GHIJ", bundleId: "org.example.openhome", privateKey: privateKey.export({ format: "pem", type: "pkcs8" }).toString() };
+  let deliveries = 0;
+  const transport = { async send() { deliveries += 1; return { status: 200 }; } };
+  const state = { title: "Dryer", state: "Running", detail: "Bedding" };
+  assert.equal((await publishLiveActivity("living", "dryer-1", state, "update", configuration, transport))[0].status, 200);
+  assert.equal((await publishLiveActivity("living", "dryer-1", state, "update", configuration, transport))[0].skipped, true);
+  assert.equal(deliveries, 1);
   await unregisterLiveActivity(device.deviceID, "activity-2");
   assert.deepEqual(await liveActivityTargets("living", "dryer-1"), []);
   await assert.rejects(() => activateClient(payload.code, "Second iPhone"), /invalid or expired/);

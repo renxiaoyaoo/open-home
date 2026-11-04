@@ -20,6 +20,15 @@ a ten-minute single-use activation package with `npm run activation:create`.
 The command derives its administrator proof from the recoverable session key,
 so no additional long-lived secret is required or printed.
 
+Live Activity state is refreshed through the authenticated, platform-neutral
+`POST /api/v1/live-activities/refresh` contract. Run `npm run
+live-activities:refresh` from any trusted scheduler with the deployment's
+existing API URL and session key; APNs variables remain on the application
+runtime. The scheduler may be a Node
+cron job, a CI schedule, or a platform timer; the product core does not depend
+on Cloudflare scheduling. Unchanged state is not sent again, and a terminal
+dryer state closes its registered activity.
+
 To sync an ignored private environment file through a deployment host without retaining a remote plaintext copy, run `deploy/cloudflare/sync-via-ssh.sh <ssh-target> <remote-repo-root> [private-env-file]`. The remote temporary file is removed automatically after Wrangler updates the Worker secrets.
 
 `OPENHOME_SESSION_ENCRYPTION_KEY` is deployment-owned key material. Generate or rotate it with `node deploy/cloudflare/rotate-session-key.mjs .env.deploy.local --yes`, then sync the secrets. The tool uses 32 cryptographically random bytes encoded as 64 hexadecimal characters. Rotation deliberately makes existing stored sessions unreadable, so every account must log in again.
