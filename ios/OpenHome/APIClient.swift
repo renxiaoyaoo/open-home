@@ -119,10 +119,46 @@ private enum JSONScalar: Decodable, Sendable {
     var intValue: Int? { switch self { case .number(let value): Int(value); case .string(let value): Int(value); case .bool(let value): value ? 1 : 0; case .null: nil } }
 }
 
-struct RemoteVehicleProvider: HomeProvider {
+actor RemoteVehicleProvider: HomeProvider {
     let client: APIClient
+    private var vehicle: VehicleWire.Vehicle?
+
+    init(client: APIClient) { self.client = client }
+
     func snapshot() async throws -> VehicleSnapshot {
-        let response: Envelope<VehicleSnapshot> = try await client.get("auto/status")
-        return response.data
+        if vehicle == nil {
+            let response: Envelope<VehicleWire.Bootstrap> = try await client.get("auto/bootstrap")
+            guard let first = response.data.vehicles.first else { throw ProviderError.invalidResponse }
+            vehicle = first
+            if let initial = response.data.snapshot?.summary { return normalize(initial, fallback: first) }
+        }
+        guard let vehicle else { throw ProviderError.invalidResponse }
+        let response: Envelope<VehicleWire.Summary> = try await client.get("auto/status", query: [.init(name: "vehicleId", value: vehicle.id)])
+        return normalize(response.data, fallback: vehicle)
     }
+
+    private func normalize(_ value: VehicleWire.Summary, fallback: VehicleWire.Vehicle) -> VehicleSnapshot {
+        let state: VehicleSnapshot.State
+        if value.health?.values.contains("warning") == true { state = .fault }
+        else if value.chargingState == "charging" { state = .charging }
+        else if value.powerState == "on", (value.speedKph ?? 0) > 0 { state = .driving }
+        else if value.powerState == "on" { state = .ready }
+        else { state = .parked }
+        return .init(vehicleID: value.id, name: value.name.isEmpty ? fallback.name : value.name, state: state, speedKPH: value.speedKph, totalRangeKM: value.estimatedRangeKm, batteryPercent: value.tractionBatteryPercent, fuelPercent: value.fuelPercent, electricRangeKM: value.electricRangeKm, fuelRangeKM: value.fuelRangeKm, odometerKM: value.odometerKm, cabinTemperatureC: value.cabinTemperatureC, locationName: value.locationName, chargingPowerKW: value.chargingPowerKw, remainingChargeMinutes: value.remainingChargeMinutes, updatedAt: value.updatedAt.flatMap(VehicleWire.date))
+    }
+}
+
+private enum VehicleWire {
+    struct Bootstrap: Decodable, Sendable { let vehicles: [Vehicle]; let snapshot: Snapshot? }
+    struct Snapshot: Decodable, Sendable { let summary: Summary }
+    struct Vehicle: Decodable, Sendable { let id: String; let name: String }
+    struct Summary: Decodable, Sendable {
+        let id: String; let name: String; let powerState: String
+        let estimatedRangeKm: Double?; let electricRangeKm: Double?; let fuelRangeKm: Double?
+        let tractionBatteryPercent: Double?; let fuelPercent: Double?; let chargingState: String?
+        let chargingPowerKw: Double?; let remainingChargeMinutes: Int?; let odometerKm: Double?
+        let speedKph: Double?; let cabinTemperatureC: Double?; let locationName: String?
+        let health: [String: String]?; let updatedAt: String?
+    }
+    static func date(_ value: String) -> Date? { ISO8601DateFormatter().date(from: value) }
 }

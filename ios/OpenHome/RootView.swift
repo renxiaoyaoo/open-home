@@ -26,6 +26,7 @@ struct RootView: View {
             switch model.selectedModule {
             case .gate: GateView(provider: RemoteGateProvider(client: client))
             case .living: DryerView(provider: RemoteDryerProvider(client: client))
+            case .auto: VehicleView(provider: RemoteVehicleProvider(client: client))
             default: ModulePlaceholder(module: model.selectedModule)
             }
         } else { ModulePlaceholder(module: model.selectedModule) }

@@ -69,6 +69,14 @@ struct VehicleSnapshot: Codable, Sendable, Equatable {
     let totalRangeKM: Double?
     let batteryPercent: Double?
     let fuelPercent: Double?
+    let electricRangeKM: Double?
+    let fuelRangeKM: Double?
+    let odometerKM: Double?
+    let cabinTemperatureC: Double?
+    let locationName: String?
+    let chargingPowerKW: Double?
+    let remainingChargeMinutes: Int?
+    let updatedAt: Date?
 
     enum State: String, Codable, Sendable { case parked, ready, driving, charging, fault }
 }
