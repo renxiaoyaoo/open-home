@@ -3,7 +3,8 @@ import { DRYER_PROGRAM_IDS, DRYER_PROGRAMS } from "./dryer-programs.ts";
 import { deviceRoute, providerBundle } from "./provider-bundle.ts";
 
 export type OpenDeviceSession = { uid: string; accessToken: string; deviceId: string; displayName?: string; tokenPwd?: string; accessTokenExpiresAt?: number; tokenPwdExpiresAt?: number };
-type RefreshedSession = Pick<OpenDeviceSession, "accessToken" | "accessTokenExpiresAt" | "tokenPwd" | "tokenPwdExpiresAt">;
+export type RefreshedSession = Pick<OpenDeviceSession, "accessToken" | "accessTokenExpiresAt" | "tokenPwd" | "tokenPwdExpiresAt">;
+export type OpenDeviceRefreshCoordinator = (staleAccessToken: string | undefined, refresh: () => Promise<RefreshedSession>) => Promise<RefreshedSession>;
 const refreshFlights = new Map<string, Promise<RefreshedSession>>();
 function stamp(now = new Date()) { return now.toISOString().replace(/[-:T]/g, "").slice(0, 14); }
 
@@ -18,8 +19,9 @@ export class OpenDeviceProvider {
   private uid?: string;
   private accessToken?: string;
   private readonly session?: OpenDeviceSession;
+  private readonly refreshCoordinator?: OpenDeviceRefreshCoordinator;
 
-  constructor(session?: OpenDeviceSession) { this.session = session; this.deviceId = session?.deviceId || this.config.credentials.deviceId; this.uid = session?.uid; this.accessToken = session?.accessToken; }
+  constructor(session?: OpenDeviceSession, refreshCoordinator?: OpenDeviceRefreshCoordinator) { this.session = session; this.refreshCoordinator = refreshCoordinator; this.deviceId = session?.deviceId || this.config.credentials.deviceId; this.uid = session?.uid; this.accessToken = session?.accessToken; }
   private general(extra: Record<string, unknown> = {}) { const client = this.config.client; return { src: this.appId, format: "2", stamp: stamp(), platformId: client.platformId, deviceId: this.deviceId, reqId: randomBytes(16).toString("hex"), uid: this.uid, clientType: client.clientType, appId: this.appId, language: client.language, ...extra }; }
   private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string>; refresh?: boolean; authenticated?: boolean } = {}): Promise<unknown> {
     const method = options.method || "POST"; const body = options.data === undefined ? "" : JSON.stringify(options.data); const nonce = String(Math.floor(Date.now() / 1000));
@@ -38,6 +40,12 @@ export class OpenDeviceProvider {
   }
   private async refreshAccessToken() {
     if (!this.uid || !this.session?.tokenPwd) throw new Error("OpenLiving session cannot be refreshed");
+    if (this.refreshCoordinator) {
+      const refreshed = await this.refreshCoordinator(this.accessToken, () => this.performAccessTokenRefresh());
+      this.accessToken = refreshed.accessToken;
+      Object.assign(this.session, refreshed);
+      return;
+    }
     const key = `${this.uid}:${this.session.tokenPwd}`;
     let flight = refreshFlights.get(key);
     if (!flight) {

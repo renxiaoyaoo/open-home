@@ -57,6 +57,13 @@
       "when": 1793770466023,
       "tag": "0007_woozy_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793771908790,
+      "tag": "0008_nice_menace",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { OpenDeviceProvider, type OpenDeviceSession } from "./opendevice-provider.ts";
-import { assertClientAccess, loadProviderSession, persistProviderSession, removeProviderAccount, saveProviderSession } from "./central.ts";
+import { assertClientAccess, loadProviderSession, refreshProviderSession, removeProviderAccount, saveProviderSession } from "./central.ts";
 import { openSession } from "./session-crypto.ts";
 
 const LEGACY_COOKIE = "openhome_opendevice";
@@ -22,11 +22,10 @@ export async function callDryerAdapter(operation: DryerOperation, request: Reque
   if (operation === "logout") { await removeProviderAccount("opendevice", String(body.accountId || "") || undefined); return clearLegacy(Response.json({ ok: true })); }
   const stored = await storedSession(request, url.searchParams.get("accountId") || undefined);
   if (operation === "profile") return stored.migrated ? clearLegacy(Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenLiving 账号" } })) : Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenLiving 账号" } });
-  const client = new OpenDeviceProvider(stored.session); let data: unknown;
+  const client = new OpenDeviceProvider(stored.session, (staleAccessToken, refresh) => refreshProviderSession("opendevice", stored.accountId, staleAccessToken, async () => ({ ...stored.session, ...await refresh() }))); let data: unknown;
   if (operation === "homes") data = await client.listHomes();
   else if (operation === "devices") data = await client.listDevices(id(url.searchParams.get("homeId"), "家庭"));
   else if (operation === "capabilities") data = await client.capabilities(id(url.searchParams.get("homeId"), "家庭"), id(url.searchParams.get("deviceId"), "设备"));
   else { const deviceId = id(expected === "GET" ? url.searchParams.get("deviceId") : body.deviceId, "设备"); if (operation === "status") data = await client.status(deviceId); else if (operation === "program") data = body.parameters && typeof body.parameters === "object" ? await client.configureProgram(deviceId, Number(body.programId), body.parameters as Record<string, number>) : await client.program(deviceId, Number(body.programId)); else if (operation === "power") data = await client.power(deviceId, Boolean(body.power)); else { const requested = String(body.action || ""); const actions = { startDrying: "start", pauseDrying: "pause", appointmentDrying: "schedule", cancelAppointmentDrying: "cancelSchedule" } as const; const action = actions[requested as keyof typeof actions]; if (!action) throw new Error("不支持的设备操作"); if (action === "schedule") await client.power(deviceId, true); data = await client.action(deviceId, action, body.data || {}); } }
-  await persistProviderSession("opendevice", stored.accountId, stored.session);
   return Response.json({ ok: true, data });
 }

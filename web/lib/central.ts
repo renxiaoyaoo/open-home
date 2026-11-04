@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { getDb } from "../db/index.ts";
 import type { ProviderRequestContext } from "./provider.ts";
 import { openSession, sealSession } from "./session-crypto.ts";
@@ -25,6 +25,24 @@ export async function saveCentralSession(accountId: string, mobile: string, disp
 export async function loadProviderSession<T>(provider: ProviderId, accountId?: string) { const db = await getDb(); const row = accountId ? await db.prepare("SELECT s.encrypted_state AS encryptedState,a.id AS accountId FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE a.id=? AND a.provider=? AND a.status='active'").bind(accountId, provider).first<{ encryptedState: string; accountId: string }>() : await db.prepare("SELECT s.encrypted_state AS encryptedState,a.id AS accountId FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE a.provider=? AND a.status='active' ORDER BY a.updated_at DESC LIMIT 1").bind(provider).first<{ encryptedState: string; accountId: string }>(); if (!row) throw new Error("Account is not signed in"); return { accountId: row.accountId, session: openSession<T>(row.encryptedState) }; }
 export async function loadCentralSession(accountId: string) { return (await loadProviderSession<CentralSession>("opengate", accountId)).session; }
 export async function persistProviderSession<T>(provider: ProviderId, accountId: string, session: T) { const result = await (await getDb()).prepare("UPDATE sessions SET encrypted_state=?,updated_at=? WHERE account_id=? AND EXISTS (SELECT 1 FROM accounts WHERE id=? AND provider=?)").bind(sealSession(session), Date.now(), accountId, accountId, provider).run(); return result; }
+export async function refreshProviderSession<T extends { accessToken?: string }>(provider: ProviderId, accountId: string, staleAccessToken: string | undefined, refresh: () => Promise<T>) {
+  const db = await getDb(); const owner = randomUUID(); const deadline = Date.now() + 15_000;
+  while (true) {
+    const now = Date.now();
+    await db.prepare("INSERT INTO provider_leases (account_id,owner,expires_at) VALUES (?,?,?) ON CONFLICT(account_id) DO UPDATE SET owner=excluded.owner,expires_at=excluded.expires_at WHERE provider_leases.expires_at<? OR provider_leases.owner=?").bind(accountId, owner, now + 20_000, now, owner).run();
+    const lease = await db.prepare("SELECT owner FROM provider_leases WHERE account_id=?").bind(accountId).first<{ owner: string }>();
+    if (lease?.owner === owner) break;
+    if (now >= deadline) throw new Error("Provider session refresh is busy");
+    await new Promise((resolve) => setTimeout(resolve, 75));
+  }
+  try {
+    const latest = await loadProviderSession<T>(provider, accountId);
+    if (latest.session.accessToken && latest.session.accessToken !== staleAccessToken) return latest.session;
+    const updated = await refresh();
+    await persistProviderSession(provider, accountId, updated);
+    return updated;
+  } finally { await db.prepare("DELETE FROM provider_leases WHERE account_id=? AND owner=?").bind(accountId, owner).run(); }
+}
 export async function persistCentralSession(accountId: string, session: CentralSession) { return persistProviderSession("opengate", accountId, session); }
 export async function listAccounts(provider?: ProviderId) { const db = await getDb(); const sql = `SELECT id,provider,display_name AS displayName,mobile_mask AS mobileMask,status,updated_at AS updatedAt FROM accounts${provider ? " WHERE provider=?" : ""} ORDER BY updated_at DESC`; return (provider ? await db.prepare(sql).bind(provider).all<{ id: string; provider: ProviderId; displayName: string | null; mobileMask: string; status: string; updatedAt: number }>() : await db.prepare(sql).all<{ id: string; provider: ProviderId; displayName: string | null; mobileMask: string; status: string; updatedAt: number }>()).results; }
 export async function publicAccounts(provider: ProviderId = "opengate") { return (await listAccounts(provider)).filter((row) => row.status === "active").map((row) => ({ id: row.id, provider: row.provider, username: row.displayName || row.mobileMask })); }

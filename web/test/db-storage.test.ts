@@ -10,15 +10,23 @@ test("center storage contains provider sessions and client device identities", a
   process.env.OPENHOME_SESSION_ENCRYPTION_KEY = "11".repeat(32);
   try {
     const { getDb } = await import("../db/index.ts");
-    const { loadProviderSession, publicAccounts, saveProviderSession } = await import("../lib/central.ts");
+    const { loadProviderSession, publicAccounts, refreshProviderSession, saveProviderSession } = await import("../lib/central.ts");
     const db = await getDb();
     const rows = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all<{ name: string }>();
-    assert.deepEqual(rows.results.map((row) => row.name), ["accounts", "activation_codes", "client_devices", "sessions"]);
+    assert.deepEqual(rows.results.map((row) => row.name), ["accounts", "activation_codes", "client_devices", "provider_leases", "sessions"]);
     await saveProviderSession("opendevice", "od-test", "13800138000", "Appliance", { accessToken: "device-token" });
     await saveProviderSession("openlock", "ol-test", "13800138000", "Lock", { token: "lock-token" });
     assert.deepEqual((await loadProviderSession<{ accessToken: string }>("opendevice")).session, { accessToken: "device-token" });
     assert.deepEqual((await loadProviderSession<{ token: string }>("openlock")).session, { token: "lock-token" });
     assert.deepEqual((await publicAccounts("opendevice")).map(({ id, provider }) => ({ id, provider })), [{ id: "od-test", provider: "opendevice" }]);
+    let refreshes = 0;
+    const refresh = async () => { refreshes += 1; await new Promise((resolve) => setTimeout(resolve, 10)); return { accessToken: "fresh-token" }; };
+    const sessions = await Promise.all([
+      refreshProviderSession("opendevice", "od-test", "device-token", refresh),
+      refreshProviderSession("opendevice", "od-test", "device-token", refresh),
+    ]);
+    assert.equal(refreshes, 1);
+    assert.deepEqual(sessions, [{ accessToken: "fresh-token" }, { accessToken: "fresh-token" }]);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

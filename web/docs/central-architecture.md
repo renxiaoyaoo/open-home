@@ -51,6 +51,11 @@ Sessions are encrypted with AES-256-GCM. Mobile numbers are retained only as an
 HMAC fingerprint and a display mask. Removing an account deletes its encrypted
 session through a foreign-key cascade. OpenGate, OpenLiving, OpenLock, and OpenAuto all
 read these server-held sessions, so browsers do not own upstream login state.
+Provider token refresh uses a short account-scoped storage lease and re-reads the
+latest encrypted session before refreshing. This works through the shared database
+port on SQLite and D1, survives stateless instance replacement, and does not
+serialize or cache ordinary real-time reads. It deliberately has no dependency on
+Cloudflare Durable Objects or process memory.
 The encryption key is deployment identity and must survive ordinary releases; access-boundary cookies
 remain hostname-scoped and require an explicit migration or reauthentication
 when the hostname changes.

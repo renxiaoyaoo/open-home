@@ -18,6 +18,12 @@ export const gateSessions = sqliteTable("sessions", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const providerLeases = sqliteTable("provider_leases", {
+  accountId: text("account_id").primaryKey().references(() => gateAccounts.id, { onDelete: "cascade" }),
+  owner: text("owner").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+});
+
 export const activationCodes = sqliteTable("activation_codes", {
   id: text("id").primaryKey(),
   secretHash: text("secret_hash").notNull().unique(),
