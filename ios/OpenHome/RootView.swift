@@ -21,17 +21,13 @@ struct RootView: View {
     }
 
     @ViewBuilder private var connectedContent: some View {
-        if model.connection?.mode == .direct {
-            DirectModuleView(module: model.selectedModule, enabled: model.connection?.enabledProviders.contains(model.selectedModule.providerID) == true)
-        } else if let url = model.connection?.centerURL {
-            let client = APIClient(baseURL: url, credential: { try ConnectionStore().centerToken() })
-            switch model.selectedModule {
-            case .gate: GateView(provider: RemoteGateProvider(client: client))
-            case .living: DryerView(provider: RemoteDryerProvider(client: client))
-            case .auto: VehicleView(provider: RemoteVehicleProvider(client: client))
-            default: ModulePlaceholder(module: model.selectedModule)
-            }
-        } else { ModulePlaceholder(module: model.selectedModule) }
+        if model.connection?.enabledProviders.contains(model.selectedModule.providerID) != true {
+            ModuleUnavailableView(module: model.selectedModule, message: "此模块未启用")
+        } else if let factory = model.providerFactory() {
+            ProviderModuleView(module: model.selectedModule, factory: factory)
+        } else {
+            ModuleUnavailableView(module: model.selectedModule, message: "连接配置不可用")
+        }
     }
 
     private var moduleSwitcher: some View {
@@ -120,22 +116,35 @@ private struct ConnectionSetupView: View {
     }
 }
 
-private struct DirectModuleView: View {
+private struct ProviderModuleView: View {
     let module: AppModel.Module
-    let enabled: Bool
+    let factory: any ProviderFactory
+
+    @ViewBuilder
     var body: some View {
-        ContentUnavailableView(enabled ? "需要安装直连 Provider" : "此模块未启用", systemImage: module.symbol, description: Text(enabled ? "直连协议包安装后，账号会话只保存在本机 Keychain。" : "切换连接方式以重新选择本机模块。"))
+        switch module {
+        case .gate:
+            resolved { GateView(provider: try factory.gateProvider()) }
+        case .living:
+            resolved { DryerView(provider: try factory.dryerProvider()) }
+        case .auto:
+            resolved { VehicleView(provider: try factory.vehicleProvider()) }
+        case .lock:
+            ModuleUnavailableView(module: module, message: "Provider 尚未接入")
+        }
+    }
+
+    private func resolved<Content: View>(content: () throws -> Content) -> AnyView {
+        do { return AnyView(try content()) }
+        catch { return AnyView(ModuleUnavailableView(module: module, message: error.localizedDescription)) }
     }
 }
 
-private struct ModulePlaceholder: View {
+private struct ModuleUnavailableView: View {
     let module: AppModel.Module
+    let message: String
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: module.symbol).font(.system(size: 34)).foregroundStyle(Color.openHomeAccent)
-            Text(module.rawValue).font(.title2.bold())
-            Text("Provider 已就绪后在这里显示实时状态").font(.subheadline).foregroundStyle(.secondary)
-        }.padding(24).frame(maxWidth: 520).background(.white, in: RoundedRectangle(cornerRadius: 18)).padding(14)
+        ContentUnavailableView(message, systemImage: module.symbol)
     }
 }
 

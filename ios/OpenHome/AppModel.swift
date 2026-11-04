@@ -32,13 +32,26 @@ final class AppModel {
 
     var selectedModule: Module = .gate
     var connection: ConnectionConfiguration?
+    let directProviders: DirectProviderRegistry
 
-    init(connectionStore: ConnectionStore = ConnectionStore()) {
+    init(connectionStore: ConnectionStore = ConnectionStore(), directProviders: DirectProviderRegistry = .unconfigured) {
         connection = connectionStore.load()
+        self.directProviders = directProviders
     }
 
     func disconnect(connectionStore: ConnectionStore = ConnectionStore()) {
         connectionStore.clear()
         connection = nil
+    }
+
+    func providerFactory(connectionStore: ConnectionStore = ConnectionStore()) -> (any ProviderFactory)? {
+        guard let connection else { return nil }
+        switch connection.mode {
+        case .center:
+            guard let baseURL = connection.centerURL else { return nil }
+            return RemoteProviderFactory(baseURL: baseURL, credential: { try connectionStore.centerToken() })
+        case .direct:
+            return DirectProviderFactory(registry: directProviders)
+        }
     }
 }
