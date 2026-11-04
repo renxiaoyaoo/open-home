@@ -21,8 +21,13 @@ struct RootView: View {
     }
 
     @ViewBuilder private var connectedContent: some View {
-        if model.selectedModule == .gate, let url = model.connection?.centerURL {
-            GateView(provider: RemoteGateProvider(client: APIClient(baseURL: url, credential: { try ConnectionStore().centerToken() })))
+        if let url = model.connection?.centerURL {
+            let client = APIClient(baseURL: url, credential: { try ConnectionStore().centerToken() })
+            switch model.selectedModule {
+            case .gate: GateView(provider: RemoteGateProvider(client: client))
+            case .living: DryerView(provider: RemoteDryerProvider(client: client))
+            default: ModulePlaceholder(module: model.selectedModule)
+            }
         } else { ModulePlaceholder(module: model.selectedModule) }
     }
 
@@ -30,17 +35,17 @@ struct RootView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 7) {
                 ForEach(AppModel.Module.allCases) { module in
+                    let selected = model.selectedModule == module
                     Button { model.selectedModule = module } label: {
                         HStack(spacing: 7) {
-                            Image(systemName: module.symbol).frame(width: 24, height: 24).background(.white.opacity(model.selectedModule == module ? 0.18 : 1), in: RoundedRectangle(cornerRadius: 7))
+                            Image(systemName: module.symbol).foregroundStyle(selected ? .white : .primary).frame(width: 24, height: 24).background(.white.opacity(selected ? 0.18 : 1), in: RoundedRectangle(cornerRadius: 7))
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(module.rawValue).font(.system(size: 12, weight: .semibold))
-                                Text(module.subtitle).font(.system(size: 9))
+                                Text(module.rawValue).font(.system(size: 12, weight: .semibold)).foregroundStyle(selected ? .white : .primary)
+                                Text(module.subtitle).font(.system(size: 9)).foregroundStyle(selected ? .white.opacity(0.78) : .secondary)
                             }
                         }
-                        .foregroundStyle(model.selectedModule == module ? .white : .primary)
                         .padding(.horizontal, 10).frame(height: 48)
-                        .background(model.selectedModule == module ? Color.openHomeAccent : .white, in: RoundedRectangle(cornerRadius: 13))
+                        .background(selected ? Color.openHomeAccent : .white, in: RoundedRectangle(cornerRadius: 13))
                     }
                     .buttonStyle(.plain)
                 }

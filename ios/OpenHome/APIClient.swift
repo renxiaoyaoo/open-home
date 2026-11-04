@@ -48,12 +48,75 @@ struct RemoteGateProvider: GateProvider {
     }
 }
 
-struct RemoteDryerProvider: HomeProvider {
+actor RemoteDryerProvider: HomeProvider {
     let client: APIClient
+    private var dryer: DryerWire.Device?
+
+    init(client: APIClient) { self.client = client }
+
     func snapshot() async throws -> DryerSnapshot {
-        let response: Envelope<DryerSnapshot> = try await client.get("dryer/status")
-        return response.data
+        let device = try await resolveDryer()
+        let response: Envelope<DryerWire.Status> = try await client.get("dryer/status", query: [.init(name: "deviceId", value: device.applianceCode)])
+        let values = response.data.values
+        let powered = values["dryer.power"]?.boolValue == true
+        let status = values["dryer.workStatus"]?.intValue
+        let programID = values["dryer.currentDryingProgramId"]?.intValue
+        let remaining = values["dryer.remainingRunningTime"]?.intValue
+        let state: DryerSnapshot.State
+        if !powered { state = .off }
+        else { switch status { case 2: state = .running; case 3, 9: state = .paused; case 4, 8: state = .scheduled; case 5: state = .fault; case 6: state = .finished; default: state = .idle } }
+        return DryerSnapshot(deviceID: device.applianceCode, name: device.name ?? "干衣机", state: state, programName: DryerWire.programs[programID ?? -1], remainingMinutes: remaining, expectedFinish: remaining.map { Date().addingTimeInterval(TimeInterval($0 * 60)) })
     }
+
+    private func resolveDryer() async throws -> DryerWire.Device {
+        if let dryer { return dryer }
+        let homes: Envelope<DryerWire.Homes> = try await client.get("dryer/homes")
+        for home in homes.data.homeList ?? [] {
+            let response: Envelope<DryerWire.Devices> = try await client.get("dryer/devices", query: [.init(name: "homeId", value: home.homegroupId.description)])
+            let rooms = (response.data.homeList ?? []).flatMap { $0.roomList ?? [] }
+            let devices = rooms.flatMap { $0.applianceList ?? [] }
+            if let found = devices.first(where: { $0.type.description.lowercased() == "0xdc" }) {
+                dryer = found
+                return found
+            }
+        }
+        throw ProviderError.invalidResponse
+    }
+}
+
+private enum DryerWire {
+    struct Homes: Decodable, Sendable { let homeList: [Home]? }
+    struct Home: Decodable, Sendable { let homegroupId: StringOrNumber }
+    struct Devices: Decodable, Sendable { let homeList: [DeviceHome]? }
+    struct DeviceHome: Decodable, Sendable { let roomList: [Room]? }
+    struct Room: Decodable, Sendable { let applianceList: [Device]? }
+    struct Device: Decodable, Sendable { let applianceCode: String; let name: String?; let type: StringOrNumber }
+    struct Status: Decodable, Sendable {
+        let properties: [Property]?
+        let data: NestedStatus?
+        var values: [String: JSONScalar] { Dictionary(uniqueKeysWithValues: (properties ?? data?.properties ?? []).compactMap { property in property.code.map { ($0, property.value) } }) }
+    }
+    struct NestedStatus: Decodable, Sendable { let properties: [Property]? }
+    struct Property: Decodable, Sendable {
+        let code: String?
+        let value: JSONScalar
+        enum CodingKeys: String, CodingKey { case code, propertyCode, value }
+        init(from decoder: Decoder) throws { let container = try decoder.container(keyedBy: CodingKeys.self); code = try container.decodeIfPresent(String.self, forKey: .code) ?? container.decodeIfPresent(String.self, forKey: .propertyCode); value = try container.decode(JSONScalar.self, forKey: .value) }
+    }
+    static let programs = [2: "混合", 43: "大件烘", 42: "小件烘", 26: "定时烘", 11: "热风暖衣", 39: "空气洗", 17: "快烘", 10: "冷风清新", 83: "除菌除螨", 28: "支架烘", 45: "晒被子", 8: "羊毛", 6: "羽绒服", 0: "棉麻", 14: "婴儿服", 15: "衬衫", 22: "浴巾", 44: "羊毛护理", 13: "内衣", 12: "运动服", 3: "牛仔"]
+}
+
+private enum StringOrNumber: Decodable, Sendable, CustomStringConvertible {
+    case string(String), number(Int)
+    init(from decoder: Decoder) throws { let value = try decoder.singleValueContainer(); if let number = try? value.decode(Int.self) { self = .number(number) } else { self = .string(try value.decode(String.self)) } }
+    var description: String { switch self { case .string(let value): value; case .number(let value): String(value) } }
+}
+
+private enum JSONScalar: Decodable, Sendable {
+    case bool(Bool), number(Double), string(String), null
+    init(from decoder: Decoder) throws { let value = try decoder.singleValueContainer(); if value.decodeNil() { self = .null } else if let bool = try? value.decode(Bool.self) { self = .bool(bool) } else if let number = try? value.decode(Double.self) { self = .number(number) } else { self = .string(try value.decode(String.self)) } }
+    var boolValue: Bool? { switch self { case .bool(let value): value; case .number(let value): value != 0; case .string(let value): ["1", "true"].contains(value.lowercased()); case .null: nil } }
+    var intValue: Int? { switch self { case .number(let value): Int(value); case .string(let value): Int(value); case .bool(let value): value ? 1 : 0; case .null: nil } }
 }
 
 struct RemoteVehicleProvider: HomeProvider {
