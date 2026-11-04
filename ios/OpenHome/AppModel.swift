@@ -27,6 +27,7 @@ final class AppModel {
             case .auto: "car.side"
             }
         }
+        var providerID: ProviderID { switch self { case .gate: .gate; case .living: .living; case .lock: .lock; case .auto: .auto } }
     }
 
     var selectedModule: Module = .gate
@@ -34,5 +35,10 @@ final class AppModel {
 
     init(connectionStore: ConnectionStore = ConnectionStore()) {
         connection = connectionStore.load()
+    }
+
+    func disconnect(connectionStore: ConnectionStore = ConnectionStore()) {
+        connectionStore.clear()
+        connection = nil
     }
 }

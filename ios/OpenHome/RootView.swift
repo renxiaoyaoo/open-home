@@ -21,7 +21,9 @@ struct RootView: View {
     }
 
     @ViewBuilder private var connectedContent: some View {
-        if let url = model.connection?.centerURL {
+        if model.connection?.mode == .direct {
+            DirectModuleView(module: model.selectedModule, enabled: model.connection?.enabledProviders.contains(model.selectedModule.providerID) == true)
+        } else if let url = model.connection?.centerURL {
             let client = APIClient(baseURL: url, credential: { try ConnectionStore().centerToken() })
             switch model.selectedModule {
             case .gate: GateView(provider: RemoteGateProvider(client: client))
@@ -33,8 +35,9 @@ struct RootView: View {
     }
 
     private var moduleSwitcher: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 7) {
+        HStack(spacing: 6) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 7) {
                 ForEach(AppModel.Module.allCases) { module in
                     let selected = model.selectedModule == module
                     Button { model.selectedModule = module } label: {
@@ -50,9 +53,15 @@ struct RootView: View {
                     }
                     .buttonStyle(.plain)
                 }
-            }.padding(.horizontal, 14)
+                }.padding(.leading, 14)
+            }
+            .scrollIndicators(.hidden)
+            Menu {
+                Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") { model.disconnect() }
+            } label: { Image(systemName: "ellipsis.circle").font(.title3).frame(width: 40, height: 48).background(.white, in: RoundedRectangle(cornerRadius: 13)) }
+            .buttonStyle(.plain).padding(.trailing, 14)
         }
-        .scrollIndicators(.hidden).contentMargins(.vertical, 12)
+        .padding(.vertical, 12)
         .background(.thinMaterial)
     }
 }
@@ -63,6 +72,7 @@ private struct ConnectionSetupView: View {
     @State private var activationCode = ""
     @State private var isActivating = false
     @State private var errorMessage: String?
+    @State private var directProviders = Set(ProviderID.allCases)
 
     var body: some View {
         ScrollView {
@@ -80,9 +90,17 @@ private struct ConnectionSetupView: View {
                         Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.isEmpty || isActivating)
                         if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
                     } else {
-                        Text("账号会话只保存在本机 Keychain。每个厂商 Provider 独立安装和登录。")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        Button("选择 Provider") { model.connection = .init(mode: .direct, centerURL: nil, deviceCredentialID: nil, enabledProviders: []) }.buttonStyle(OpenHomePrimaryButton())
+                        Text("选择要在本机使用的模块").font(.subheadline).foregroundStyle(.secondary)
+                        LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
+                            ForEach(AppModel.Module.allCases) { module in
+                                let selected = directProviders.contains(module.providerID)
+                                Button { if selected { directProviders.remove(module.providerID) } else { directProviders.insert(module.providerID) } } label: {
+                                    HStack { Image(systemName: module.symbol); Text(module.rawValue).font(.caption.bold()); Spacer(); Image(systemName: selected ? "checkmark.circle.fill" : "circle") }
+                                        .padding(12).foregroundStyle(selected ? Color.openHomeAccent : .secondary).background(selected ? Color.openHomeAccent.opacity(0.10) : Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 12))
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        Button("继续") { do { model.connection = try ConnectionStore().saveDirect(providers: directProviders) } catch { errorMessage = error.localizedDescription } }.buttonStyle(OpenHomePrimaryButton()).disabled(directProviders.isEmpty)
                     }
                 }
                 .padding(20).background(.white, in: RoundedRectangle(cornerRadius: 18))
@@ -99,6 +117,14 @@ private struct ConnectionSetupView: View {
             model.connection = try ConnectionStore().saveCenter(result)
             activationCode = ""
         } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct DirectModuleView: View {
+    let module: AppModel.Module
+    let enabled: Bool
+    var body: some View {
+        ContentUnavailableView(enabled ? "需要安装直连 Provider" : "此模块未启用", systemImage: module.symbol, description: Text(enabled ? "直连协议包安装后，账号会话只保存在本机 Keychain。" : "切换连接方式以重新选择本机模块。"))
     }
 }
 

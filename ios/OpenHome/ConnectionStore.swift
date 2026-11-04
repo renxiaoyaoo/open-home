@@ -18,6 +18,17 @@ struct ConnectionStore {
         return try? JSONDecoder().decode(ConnectionConfiguration.self, from: data)
     }
 
+    func saveDirect(providers: Set<ProviderID>) throws -> ConnectionConfiguration {
+        let configuration = ConnectionConfiguration(mode: .direct, centerURL: nil, deviceCredentialID: nil, enabledProviders: providers)
+        defaults.set(try JSONEncoder().encode(configuration), forKey: configurationKey)
+        return configuration
+    }
+
+    func clear() {
+        defaults.removeObject(forKey: configurationKey)
+        try? keychain.delete(account: tokenAccount)
+    }
+
     func centerToken() throws -> String {
         guard let data = try keychain.read(account: tokenAccount), let value = String(data: data, encoding: .utf8) else { throw URLError(.userAuthenticationRequired) }
         return value
