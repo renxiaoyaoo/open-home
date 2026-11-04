@@ -2,11 +2,19 @@ import { createHmac } from "node:crypto";
 import { getDb } from "../db/index.ts";
 import type { ProviderRequestContext } from "./provider.ts";
 import { openSession, sealSession } from "./session-crypto.ts";
+import { authenticateDevice } from "./client-auth.ts";
 
 export type ProviderId = "opengate" | "opendevice" | "openlock" | "openauto";
 export type CentralSession = { sessionId: string; signingToken: string; openId: string; context: ProviderRequestContext };
 
 export function assertCentralEnabled() { if (process.env.OPENHOME_ACCESS_ENABLED !== "1") throw new Error("OpenAPI is disabled until access control is configured"); }
+export async function assertClientAccess(request: Request) {
+  assertCentralEnabled();
+  const authorization = request.headers.get("authorization");
+  if (authorization) { await authenticateDevice(request); return; }
+  const boundaryHeader = (process.env.OPENHOME_BROWSER_IDENTITY_HEADER || "cf-access-jwt-assertion").toLowerCase();
+  if (process.env.NODE_ENV === "production" && !request.headers.get(boundaryHeader)) throw new Error("Browser access boundary is missing");
+}
 function encryptionKey() { const value = process.env.OPENHOME_SESSION_ENCRYPTION_KEY || ""; const key = /^[0-9a-f]{64}$/i.test(value) ? Buffer.from(value, "hex") : Buffer.from(value, "base64"); if (key.length !== 32) throw new Error("Session encryption key is not configured"); return key; }
 export function validAccountId(value: string) { if (!/^[a-z0-9][a-z0-9_-]{0,47}$/i.test(value)) throw new Error("Invalid account ID"); return value; }
 export function maskMobile(mobile: string) { return `${mobile.slice(0, 3)}****${mobile.slice(-4)}`; }

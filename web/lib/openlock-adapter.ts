@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { OpenLockProvider, type OpenLockSession } from "./openlock-provider";
-import { assertCentralEnabled, loadProviderSession, persistProviderSession, removeProviderAccount, saveProviderSession } from "./central";
+import { assertClientAccess, loadProviderSession, persistProviderSession, removeProviderAccount, saveProviderSession } from "./central";
 import { openSession } from "./session-crypto.ts";
 import { lockMediaUrl, proxyLockMedia } from "./lock-media.ts";
 
@@ -10,7 +10,7 @@ async function storedSession(request: Request, accountId?: string) { try { retur
 function clearLegacy(response: Response) { response.headers.append("set-cookie", `${LEGACY_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`); return response; }
 
 export async function callOpenLock(operation: string, request: Request) {
-  assertCentralEnabled();
+  await assertClientAccess(request);
   if (operation === "login") {
     const { phone, password } = await request.json() as { phone?: string; password?: string };
     const next = await new OpenLockProvider().passwordLogin(phone || "", password || "");

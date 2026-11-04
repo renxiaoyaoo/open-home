@@ -4,8 +4,12 @@ info:
   version: 1.1.0
   description: Provider-neutral APIs backed by encrypted provider-scoped server sessions.
 servers: [{ url: "https://your-open-home.example/api/v1" }]
-security: [{ accessBoundary: [] }]
+security: [{ deviceToken: [] }, { accessBoundary: [] }]
 paths:
+  /client/activation-codes:
+    post: { summary: Create a short-lived single-use activation package, security: [{ administratorToken: [] }], responses: { "200": { description: Activation package and expiry } } }
+  /client/activate:
+    post: { summary: Exchange an activation secret for an independent device token, security: [], responses: { "200": { description: Device identity and token } } }
   /accounts:
     get: { summary: List connected OpenGate accounts, responses: { "200": { description: Account list } } }
   /accounts/{accountHandle}:
@@ -83,6 +87,8 @@ paths:
 components:
   securitySchemes:
     accessBoundary: { type: apiKey, in: cookie, name: CF_Authorization, description: Deployment access boundary; an equivalent mechanism may be used. }
+    deviceToken: { type: http, scheme: bearer, description: Revocable OpenHome client device token. }
+    administratorToken: { type: http, scheme: bearer, description: Deployment-owned administrator token used only to issue activation packages. }
   parameters:
     accountHandle: { name: accountHandle, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$" } }
     doorKey: { name: doorKey, in: path, required: true, schema: { type: string, maxLength: 1024 } }

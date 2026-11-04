@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { assertCentralEnabled, loadProviderSession, removeProviderAccount, saveProviderSession } from "./central";
+import { assertClientAccess, loadProviderSession, removeProviderAccount, saveProviderSession } from "./central";
 import { DirectOpenAutoProvider, type OpenAutoSession } from "./openauto-provider";
 
 export async function callOpenAuto(operation: string, request: Request) {
-  assertCentralEnabled();
+  await assertClientAccess(request);
   if (operation === "login") {
     const body = await request.json() as { phone?: string; password?: string };
     const session = await new DirectOpenAutoProvider().passwordLogin(String(body.phone || ""), String(body.password || ""));

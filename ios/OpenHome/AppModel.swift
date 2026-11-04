@@ -31,4 +31,8 @@ final class AppModel {
 
     var selectedModule: Module = .gate
     var connection: ConnectionConfiguration?
+
+    init(connectionStore: ConnectionStore = ConnectionStore()) {
+        connection = connectionStore.load()
+    }
 }

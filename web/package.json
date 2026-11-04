@@ -15,7 +15,8 @@
     "start:node": "node .next/standalone/server.js",
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "activation:create": "node scripts/create-activation.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

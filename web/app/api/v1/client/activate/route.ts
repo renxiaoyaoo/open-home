@@ -1,0 +1,6 @@
+import { activateClient } from "@/lib/client-auth";
+
+export async function POST(request: Request) {
+  try { const body = await request.json() as { code?: string; deviceName?: string }; return Response.json({ ok: true, data: await activateClient(String(body.code || ""), body.deviceName) }); }
+  catch (error) { return Response.json({ ok: false, message: error instanceof Error ? error.message : "Activation failed" }, { status: 401 }); }
+}

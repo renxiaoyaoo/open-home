@@ -17,3 +17,19 @@ export const gateSessions = sqliteTable("sessions", {
   verifiedAt: integer("verified_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const activationCodes = sqliteTable("activation_codes", {
+  id: text("id").primaryKey(),
+  secretHash: text("secret_hash").notNull().unique(),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const clientDevices = sqliteTable("client_devices", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  createdAt: integer("created_at").notNull(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+  revokedAt: integer("revoked_at"),
+});

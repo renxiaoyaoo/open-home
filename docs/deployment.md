@@ -12,11 +12,13 @@ Build from `deploy/docker/Dockerfile`, mount `/app/web/data`, and pass configura
 
 The Cloudflare adapter is optional. Set `OPENHOME_CF_DATABASE_ID` and optionally `OPENHOME_CF_DATABASE_NAME`, `OPENHOME_CF_CUSTOM_DOMAIN`, and `OPENHOME_ACCESS_ENABLED=1` in the private deployment environment, configure Worker secrets, then run `npm run cf:deploy` from `web`. The generated `web/wrangler.production.jsonc` is ignored. No account ID, database UUID, custom domain, or secret belongs in this repository.
 
-For a private Web deployment, Cloudflare Zero Trust may be the access boundary
-in front of the whole site. `OPENHOME_ACCESS_ENABLED` only enables the API; it
-does not authenticate callers. A future native client must not depend on the Web
-login and requires revocable OpenHome device credentials before remote access is
-made public.
+For a private Web deployment, an identity proxy may protect the Web hostname and
+set the header named by `OPENHOME_BROWSER_IDENTITY_HEADER`. Native clients use a
+second, non-interactive API hostname routed to the same application and database;
+its application routes validate revocable OpenHome device bearer tokens. Create
+a ten-minute single-use activation package with `npm run activation:create`.
+The command derives its administrator proof from the recoverable session key,
+so no additional long-lived secret is required or printed.
 
 To sync an ignored private environment file through a deployment host without retaining a remote plaintext copy, run `deploy/cloudflare/sync-via-ssh.sh <ssh-target> <remote-repo-root> [private-env-file]`. The remote temporary file is removed automatically after Wrangler updates the Worker secrets.
 

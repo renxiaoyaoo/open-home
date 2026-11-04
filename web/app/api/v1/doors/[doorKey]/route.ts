@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { assertCentralEnabled } from "@/lib/central";
+import { assertClientAccess } from "@/lib/central";
 import { jsonError } from "@/lib/http";
 import { setProviderDoorSelected } from "@/lib/access-service";
 
 export async function PATCH(request: Request, context: { params: Promise<{ doorKey: string }> }) {
   try {
-    assertCentralEnabled();
+    await assertClientAccess(request);
     const body = await request.json() as { selected?: unknown };
     const doorKey = (await context.params).doorKey;
     if (typeof body.selected !== "boolean") throw new Error("选择状态无效");

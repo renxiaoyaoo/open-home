@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { OpenDeviceProvider, type OpenDeviceSession } from "./opendevice-provider.ts";
-import { assertCentralEnabled, loadProviderSession, persistProviderSession, removeProviderAccount, saveProviderSession } from "./central.ts";
+import { assertClientAccess, loadProviderSession, persistProviderSession, removeProviderAccount, saveProviderSession } from "./central.ts";
 import { openSession } from "./session-crypto.ts";
 
 const LEGACY_COOKIE = "openhome_opendevice";
@@ -14,7 +14,7 @@ async function storedSession(request: Request, accountId?: string) { try { retur
 function clearLegacy(response: Response) { response.headers.append("set-cookie", `${LEGACY_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`); return response; }
 
 export async function callDryerAdapter(operation: DryerOperation, request: Request) {
-  assertCentralEnabled();
+  await assertClientAccess(request);
   const expected = OPERATIONS[operation]; if (request.method !== expected) return Response.json({ ok: false, message: "请求方法不支持" }, { status: 405 });
   const url = new URL(request.url); const body = expected === "POST" ? await json(request) : {};
   if (operation === "sms") { const mobile = String(body.mobile || ""); if (!/^1\d{10}$/.test(mobile)) throw new Error("手机号无效"); return Response.json({ ok: true, data: await new OpenDeviceProvider().requestSms(mobile) }); }

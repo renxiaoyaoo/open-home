@@ -49,6 +49,8 @@ private struct ConnectionSetupView: View {
     @Environment(AppModel.self) private var model
     @State private var mode: ConnectionMode = .center
     @State private var activationCode = ""
+    @State private var isActivating = false
+    @State private var errorMessage: String?
 
     var body: some View {
         ScrollView {
@@ -63,7 +65,8 @@ private struct ConnectionSetupView: View {
                     Text(mode == .center ? "连接自己的 OpenHome" : "直接连接设备服务").font(.title2.bold())
                     if mode == .center {
                         TextField("激活码", text: $activationCode).textInputAutocapitalization(.characters).autocorrectionDisabled().textFieldStyle(.roundedBorder)
-                        Button("继续") { /* Activation exchange lands here once the API contract is available. */ }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.isEmpty)
+                        Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.isEmpty || isActivating)
+                        if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
                     } else {
                         Text("账号会话只保存在本机 Keychain。每个厂商 Provider 独立安装和登录。")
                             .font(.subheadline).foregroundStyle(.secondary)
@@ -73,6 +76,17 @@ private struct ConnectionSetupView: View {
                 .padding(20).background(.white, in: RoundedRectangle(cornerRadius: 18))
             }.padding(14).frame(maxWidth: 520)
         }
+    }
+
+    @MainActor
+    private func activate() async {
+        isActivating = true; errorMessage = nil
+        defer { isActivating = false }
+        do {
+            let result = try await ActivationClient().activate(package: activationCode.trimmingCharacters(in: .whitespacesAndNewlines), deviceName: "iPhone")
+            model.connection = try ConnectionStore().saveCenter(result)
+            activationCode = ""
+        } catch { errorMessage = error.localizedDescription }
     }
 }
 
