@@ -128,9 +128,9 @@ private struct ProviderModuleView: View {
         case .gate:
             resolved { GateView(provider: try factory.gateProvider()) }
         case .living:
-            resolved { DryerView(provider: try factory.dryerProvider()) }
+            resolved { DryerView(provider: try factory.dryerProvider(), registrar: factory.liveActivityRegistrar()) }
         case .auto:
-            resolved { VehicleView(provider: try factory.vehicleProvider()) }
+            resolved { VehicleView(provider: try factory.vehicleProvider(), registrar: factory.liveActivityRegistrar()) }
         case .lock:
             ModuleUnavailableView(module: module, message: "Provider 尚未接入")
         }

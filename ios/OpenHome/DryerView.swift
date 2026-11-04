@@ -8,10 +8,10 @@ final class DryerViewModel {
     var isLoading = false
     var message: String?
     private let provider: any HomeProvider<DryerSnapshot>
-    private let liveStatus = LiveStatusManager()
+    private let liveStatus: LiveStatusManager
     private var activityID: String?
 
-    init(provider: any HomeProvider<DryerSnapshot>) { self.provider = provider }
+    init(provider: any HomeProvider<DryerSnapshot>, registrar: (any LiveActivityRegistrar)? = nil) { self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar) }
 
     func refresh() async {
         guard !isLoading else { return }
@@ -34,7 +34,7 @@ struct DryerView: View {
     @State private var model: DryerViewModel
     @Environment(\.scenePhase) private var scenePhase
 
-    init(provider: any HomeProvider<DryerSnapshot>) { _model = State(initialValue: DryerViewModel(provider: provider)) }
+    init(provider: any HomeProvider<DryerSnapshot>, registrar: (any LiveActivityRegistrar)? = nil) { _model = State(initialValue: DryerViewModel(provider: provider, registrar: registrar)) }
 
     var body: some View {
         ScrollView {

@@ -4,6 +4,12 @@ protocol ProviderFactory: Sendable {
     func gateProvider() throws -> any GateProvider
     func dryerProvider() throws -> any HomeProvider<DryerSnapshot>
     func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot>
+    func liveActivityRegistrar() -> (any LiveActivityRegistrar)?
+}
+
+protocol LiveActivityRegistrar: Sendable {
+    func register(activityID: String, provider: ProviderID, resourceID: String, pushToken: Data) async throws
+    func unregister(activityID: String) async
 }
 
 enum DirectLoginMethod: String, CaseIterable, Identifiable, Sendable {
@@ -62,6 +68,10 @@ struct RemoteProviderFactory: ProviderFactory {
     func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> {
         RemoteVehicleProvider(client: APIClient(baseURL: baseURL, credential: credential))
     }
+
+    func liveActivityRegistrar() -> (any LiveActivityRegistrar)? {
+        RemoteLiveActivityRegistrar(client: APIClient(baseURL: baseURL, credential: credential))
+    }
 }
 
 struct DirectProviderFactory: ProviderFactory {
@@ -70,6 +80,7 @@ struct DirectProviderFactory: ProviderFactory {
     func gateProvider() throws -> any GateProvider { try registry.gate() }
     func dryerProvider() throws -> any HomeProvider<DryerSnapshot> { try registry.dryer() }
     func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> { try registry.vehicle() }
+    func liveActivityRegistrar() -> (any LiveActivityRegistrar)? { nil }
 }
 
 struct DirectProviderRegistry: Sendable {

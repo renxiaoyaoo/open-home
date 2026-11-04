@@ -10,11 +10,20 @@ struct APIClient: Sendable {
     }
 
     func request<Response: Decodable & Sendable>(_ path: String, method: String, query: [URLQueryItem] = [], headers: [String: String] = [:]) async throws -> Response {
+        try await request(path, method: method, query: query, headers: headers, body: nil)
+    }
+
+    func send<Response: Decodable & Sendable, Body: Encodable & Sendable>(_ path: String, method: String, body: Body) async throws -> Response {
+        try await request(path, method: method, query: [], headers: ["Content-Type": "application/json"], body: try JSONEncoder.openHome.encode(body))
+    }
+
+    private func request<Response: Decodable & Sendable>(_ path: String, method: String, query: [URLQueryItem], headers: [String: String], body: Data?) async throws -> Response {
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
         components?.queryItems = query.isEmpty ? nil : query
         guard let url = components?.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.httpBody = body
         request.setValue("Bearer \(try credential())", forHTTPHeaderField: "Authorization")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         let (data, response) = try await session.data(for: request)
@@ -31,7 +40,40 @@ private extension JSONDecoder {
     }
 }
 
+private extension JSONEncoder {
+    static var openHome: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+}
+
 struct Envelope<Value: Decodable & Sendable>: Decodable, Sendable { let data: Value }
+
+struct RemoteLiveActivityRegistrar: LiveActivityRegistrar {
+    let client: APIClient
+
+    func register(activityID: String, provider: ProviderID, resourceID: String, pushToken: Data) async throws {
+        let body = Registration(activityId: activityID, provider: provider.rawValue, resourceId: resourceID, pushToken: pushToken.map { String(format: "%02x", $0) }.joined(), environment: Self.environment)
+        let _: Envelope<Acknowledgement> = try await client.send("live-activities", method: "POST", body: body)
+    }
+
+    func unregister(activityID: String) async {
+        let _: Envelope<Acknowledgement>? = try? await client.send("live-activities", method: "DELETE", body: Removal(activityId: activityID))
+    }
+
+    private static var environment: String {
+#if DEBUG
+        "sandbox"
+#else
+        "production"
+#endif
+    }
+
+    private struct Registration: Encodable, Sendable { let activityId: String; let provider: String; let resourceId: String; let pushToken: String; let environment: String }
+    private struct Removal: Encodable, Sendable { let activityId: String }
+    private struct Acknowledgement: Decodable, Sendable { let activityId: String }
+}
 
 struct RemoteGateProvider: GateProvider {
     let client: APIClient

@@ -13,7 +13,7 @@ test("center storage contains provider sessions and client device identities", a
     const { loadProviderSession, publicAccounts, refreshProviderSession, saveProviderSession } = await import("../lib/central.ts");
     const db = await getDb();
     const rows = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all<{ name: string }>();
-    assert.deepEqual(rows.results.map((row) => row.name), ["accounts", "activation_codes", "client_devices", "provider_leases", "sessions"]);
+    assert.deepEqual(rows.results.map((row) => row.name), ["accounts", "activation_codes", "client_devices", "live_activities", "provider_leases", "sessions"]);
     await saveProviderSession("opendevice", "od-test", "13800138000", "Appliance", { accessToken: "device-token" });
     await saveProviderSession("openlock", "ol-test", "13800138000", "Lock", { token: "lock-token" });
     assert.deepEqual((await loadProviderSession<{ accessToken: string }>("opendevice")).session, { accessToken: "device-token" });
@@ -40,5 +40,13 @@ test("consumes a self-contained activation once and authenticates the issued dev
   const device = await activateClient(payload.code, "Test iPhone");
   const authenticated = await authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } }));
   assert.equal(authenticated.deviceID, device.deviceID);
+  const { liveActivityTargets, registerLiveActivity, unregisterLiveActivity } = await import("../lib/live-activities.ts");
+  const token = "ab".repeat(32);
+  await registerLiveActivity(device.deviceID, { activityId: "activity-1", provider: "living", resourceId: "dryer-1", pushToken: token, environment: "sandbox" });
+  assert.deepEqual(await liveActivityTargets("living", "dryer-1"), [{ activityId: "activity-1", pushToken: token, environment: "sandbox" }]);
+  await registerLiveActivity(device.deviceID, { activityId: "activity-2", provider: "living", resourceId: "dryer-1", pushToken: "cd".repeat(32), environment: "sandbox" });
+  assert.deepEqual((await liveActivityTargets("living", "dryer-1")).map(({ activityId }) => activityId), ["activity-2"]);
+  await unregisterLiveActivity(device.deviceID, "activity-2");
+  assert.deepEqual(await liveActivityTargets("living", "dryer-1"), []);
   await assert.rejects(() => activateClient(payload.code, "Second iPhone"), /invalid or expired/);
 });

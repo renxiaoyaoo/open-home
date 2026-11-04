@@ -30,9 +30,8 @@ widgets, and shortcuts share that server-held upstream session. The client store
 only its own per-device OpenHome credential, never the upstream credential.
 
 This mode supports multiple clients and centralized management of multiple
-accounts and all their access resources. Formal client release requires
-per-device tokens, revocation, and scoped permissions; that client-authentication
-layer is not yet implemented.
+accounts and all their access resources. Each activated client receives an
+independently revocable device token; finer module permissions remain future work.
 
 ### Use only on this device
 

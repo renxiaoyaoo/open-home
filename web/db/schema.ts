@@ -39,3 +39,14 @@ export const clientDevices = sqliteTable("client_devices", {
   lastSeenAt: integer("last_seen_at").notNull(),
   revokedAt: integer("revoked_at"),
 });
+
+export const liveActivities = sqliteTable("live_activities", {
+  activityId: text("activity_id").primaryKey(),
+  deviceId: text("device_id").notNull().references(() => clientDevices.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  resourceId: text("resource_id").notNull(),
+  pushToken: text("push_token").notNull(),
+  environment: text("environment").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("live_activities_device_resource").on(table.deviceId, table.provider, table.resourceId)]);

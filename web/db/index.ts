@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS sessions (account_id TEXT PRIMARY KEY REFERENCES acco
 CREATE TABLE IF NOT EXISTS provider_leases (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, owner TEXT NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS activation_codes (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS client_devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, revoked_at INTEGER);
+CREATE TABLE IF NOT EXISTS live_activities (activity_id TEXT PRIMARY KEY, device_id TEXT NOT NULL REFERENCES client_devices(id) ON DELETE CASCADE, provider TEXT NOT NULL, resource_id TEXT NOT NULL, push_token TEXT NOT NULL, environment TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS live_activities_device_resource ON live_activities(device_id, provider, resource_id);
 `;
 
 const LEGACY_CLEANUP = `

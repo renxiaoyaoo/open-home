@@ -7,7 +7,7 @@ protocol values do not belong in this public target.
 
 The app target owns navigation and account setup. The Live Activity extension
 renders normalized dryer and vehicle state on the Lock Screen and Dynamic
-Island. A center deployment may update activities through ActivityKit push;
+Island. Center mode registers ActivityKit push tokens through the portable API;
 direct mode refreshes state while the app has permitted execution time.
 
 An activation package contains the center API URL and a short-lived, single-use
