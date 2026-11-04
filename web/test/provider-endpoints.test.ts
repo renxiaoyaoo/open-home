@@ -94,6 +94,26 @@ test("refreshes an appliance session when the provider rejects the token passwor
   assert.equal(calls.length, 3);
 });
 
+test("coalesces concurrent appliance token refreshes without serializing normal reads", async () => {
+  const originalFetch = globalThis.fetch;
+  let refreshes = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const headers = init?.headers as Record<string, string>;
+    if (url.endsWith("/account/refresh")) { refreshes += 1; await new Promise((resolve) => setTimeout(resolve, 5)); return Response.json({ code: 0, data: { accessToken: "shared-token", tokenPwdInfo: { tokenPwd: "rotated-secret" } } }); }
+    if (headers.accessToken === "old-token") return Response.json({ code: 40002, msg: "token expired" });
+    return Response.json({ code: 0, data: { homeList: [] } });
+  }) as typeof fetch;
+  const first = { uid: "shared-user", accessToken: "old-token", deviceId: "client", tokenPwd: "shared-secret" };
+  const second = { ...first };
+  try { await Promise.all([new OpenDeviceProvider(first).listHomes(), new OpenDeviceProvider(second).listHomes()]); } finally { globalThis.fetch = originalFetch; }
+  assert.equal(refreshes, 1);
+  assert.equal(first.accessToken, "shared-token");
+  assert.equal(second.accessToken, "shared-token");
+  assert.equal(first.tokenPwd, "rotated-secret");
+  assert.equal(second.tokenPwd, "rotated-secret");
+});
+
 test("persists nested access and rotated refresh credentials", async () => {
   const originalFetch = globalThis.fetch;
   let homes = 0;

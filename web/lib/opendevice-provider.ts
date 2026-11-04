@@ -3,6 +3,8 @@ import { DRYER_PROGRAM_IDS, DRYER_PROGRAMS } from "./dryer-programs.ts";
 import { deviceRoute, providerBundle } from "./provider-bundle.ts";
 
 export type OpenDeviceSession = { uid: string; accessToken: string; deviceId: string; displayName?: string; tokenPwd?: string; accessTokenExpiresAt?: number; tokenPwdExpiresAt?: number };
+type RefreshedSession = Pick<OpenDeviceSession, "accessToken" | "accessTokenExpiresAt" | "tokenPwd" | "tokenPwdExpiresAt">;
+const refreshFlights = new Map<string, Promise<RefreshedSession>>();
 function stamp(now = new Date()) { return now.toISOString().replace(/[-:T]/g, "").slice(0, 14); }
 
 export class OpenDeviceProvider {
@@ -36,6 +38,19 @@ export class OpenDeviceProvider {
   }
   private async refreshAccessToken() {
     if (!this.uid || !this.session?.tokenPwd) throw new Error("OpenLiving session cannot be refreshed");
+    const key = `${this.uid}:${this.session.tokenPwd}`;
+    let flight = refreshFlights.get(key);
+    if (!flight) {
+      flight = this.performAccessTokenRefresh();
+      refreshFlights.set(key, flight);
+      void flight.finally(() => refreshFlights.delete(key)).catch(() => undefined);
+    }
+    const refreshed = await flight;
+    this.accessToken = refreshed.accessToken;
+    Object.assign(this.session, refreshed);
+  }
+  private async performAccessTokenRefresh(): Promise<RefreshedSession> {
+    if (!this.uid || !this.session?.tokenPwd) throw new Error("OpenLiving session cannot be refreshed");
     const result = await this.request(deviceRoute("refresh"), {
       data: { timestamp: stamp(), data: { tokenPwd: this.session.tokenPwd, rule: 1, platform: 2, iotAppId: this.appId, deviceId: this.deviceId } },
       headers: { userId: this.uid },
@@ -45,12 +60,13 @@ export class OpenDeviceProvider {
     const accessToken = result.accessToken || result.mdata?.accessToken;
     const tokenInfo = result.tokenPwdInfo || result.mdata?.tokenPwdInfo;
     if (!accessToken) throw new Error("OpenLiving session refresh did not return a token");
-    this.accessToken = accessToken;
-    this.session.accessToken = accessToken;
     const accessExpiry = result.expired ?? result.mdata?.expired;
-    if (Number.isFinite(Number(accessExpiry))) this.session.accessTokenExpiresAt = Number(accessExpiry);
-    if (tokenInfo?.tokenPwd) this.session.tokenPwd = tokenInfo.tokenPwd;
-    if (Number.isFinite(Number(tokenInfo?.expiredDate))) this.session.tokenPwdExpiresAt = Number(tokenInfo?.expiredDate);
+    return {
+      accessToken,
+      accessTokenExpiresAt: Number.isFinite(Number(accessExpiry)) ? Number(accessExpiry) : this.session.accessTokenExpiresAt,
+      tokenPwd: tokenInfo?.tokenPwd || this.session.tokenPwd,
+      tokenPwdExpiresAt: Number.isFinite(Number(tokenInfo?.expiredDate)) ? Number(tokenInfo?.expiredDate) : this.session.tokenPwdExpiresAt,
+    };
   }
   requestSms(mobile: string) { return this.request(deviceRoute("sms"), { data: { data: { deviceId: this.deviceId }, iotData: { type: 9, mobile, iotAppId: this.appId }, timestamp: stamp() } }); }
   async smsLogin(mobile: string, smsCode: string) {
