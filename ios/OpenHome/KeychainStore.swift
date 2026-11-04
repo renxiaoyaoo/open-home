@@ -29,4 +29,7 @@ struct KeychainStore: Sendable {
     }
 }
 
-enum KeychainError: Error { case writeFailed, readFailed }
+enum KeychainError: LocalizedError {
+    case writeFailed, readFailed
+    var errorDescription: String? { self == .readFailed ? "无法读取安全存储" : "无法更新安全存储" }
+}

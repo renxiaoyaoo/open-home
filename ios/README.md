@@ -2,7 +2,8 @@
 
 The native client shares OpenHome's provider-neutral domain and API boundary.
 It supports a remote center selected with an activation code and installable
-on-device provider adapters. Credentials belong in Keychain; provider-specific
+on-device provider adapters. The shared factory passes each adapter only its
+provider-scoped Keychain session; credentials belong in Keychain and provider-specific
 protocol values do not belong in this public target.
 
 The app target owns navigation and account setup. The Live Activity extension

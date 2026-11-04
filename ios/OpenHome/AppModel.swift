@@ -32,6 +32,7 @@ final class AppModel {
 
     var selectedModule: Module = .gate
     var connection: ConnectionConfiguration?
+    var sessionRevision = 0
     let directProviders: DirectProviderRegistry
 
     init(connectionStore: ConnectionStore = ConnectionStore(), directProviders: DirectProviderRegistry = .unconfigured) {
@@ -42,6 +43,11 @@ final class AppModel {
     func disconnect(connectionStore: ConnectionStore = ConnectionStore()) {
         connectionStore.clear()
         connection = nil
+    }
+
+    func signOutSelectedDirectProvider(sessionStore: DirectSessionStore = DirectSessionStore()) throws {
+        try sessionStore.remove(provider: selectedModule.providerID)
+        sessionRevision += 1
     }
 
     func providerFactory(connectionStore: ConnectionStore = ConnectionStore()) -> (any ProviderFactory)? {

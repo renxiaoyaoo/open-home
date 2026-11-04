@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @State private var confirmingDirectLogout = false
 
     var body: some View {
         @Bindable var model = model
@@ -18,6 +19,10 @@ struct RootView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(.openHomeAccent)
+        .confirmationDialog("退出当前账号？", isPresented: $confirmingDirectLogout, titleVisibility: .visible) {
+            Button("确认退出", role: .destructive) { try? model.signOutSelectedDirectProvider() }
+            Button("取消", role: .cancel) {}
+        } message: { Text(model.selectedModule.rawValue) }
     }
 
     @ViewBuilder private var connectedContent: some View {
@@ -25,6 +30,7 @@ struct RootView: View {
             ModuleUnavailableView(module: model.selectedModule, message: "此模块未启用")
         } else if let factory = model.providerFactory() {
             ProviderModuleView(module: model.selectedModule, factory: factory, directRegistry: model.connection?.mode == .direct ? model.directProviders : nil)
+                .id("\(model.selectedModule.id)-\(model.sessionRevision)")
         } else {
             ModuleUnavailableView(module: model.selectedModule, message: "连接配置不可用")
         }
@@ -53,6 +59,9 @@ struct RootView: View {
             }
             .scrollIndicators(.hidden)
             Menu {
+                if model.connection?.mode == .direct {
+                    Button("退出当前账号", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmingDirectLogout = true }
+                }
                 Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") { model.disconnect() }
             } label: { Image(systemName: "ellipsis.circle").font(.title3).frame(width: 40, height: 48).background(.white, in: RoundedRectangle(cornerRadius: 13)) }
             .buttonStyle(.plain).padding(.trailing, 14)
@@ -68,7 +77,7 @@ private struct ConnectionSetupView: View {
     @State private var activationCode = ""
     @State private var isActivating = false
     @State private var errorMessage: String?
-    @State private var directProviders = Set(ProviderID.allCases)
+    @State private var directProviders: Set<ProviderID> = []
 
     var body: some View {
         ScrollView {
@@ -86,9 +95,12 @@ private struct ConnectionSetupView: View {
                         Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.isEmpty || isActivating)
                         if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
                     } else {
-                        Text("选择要在本机使用的模块").font(.subheadline).foregroundStyle(.secondary)
-                        LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
-                            ForEach(AppModel.Module.allCases) { module in
+                        if model.directProviders.installed.isEmpty {
+                            ContentUnavailableView("没有可用的直连模块", systemImage: "shippingbox", description: Text("此构建未安装直连 Provider"))
+                        } else {
+                            Text("选择要在本机使用的模块").font(.subheadline).foregroundStyle(.secondary)
+                            LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
+                                ForEach(AppModel.Module.allCases.filter { model.directProviders.installed.contains($0.providerID) }) { module in
                                 let selected = directProviders.contains(module.providerID)
                                 Button { if selected { directProviders.remove(module.providerID) } else { directProviders.insert(module.providerID) } } label: {
                                     HStack { Image(systemName: module.symbol); Text(module.rawValue).font(.caption.bold()); Spacer(); Image(systemName: selected ? "checkmark.circle.fill" : "circle") }
@@ -97,11 +109,13 @@ private struct ConnectionSetupView: View {
                             }
                         }
                         Button("继续") { do { model.connection = try ConnectionStore().saveDirect(providers: directProviders) } catch { errorMessage = error.localizedDescription } }.buttonStyle(OpenHomePrimaryButton()).disabled(directProviders.isEmpty)
+                        }
                     }
                 }
                 .padding(20).background(.white, in: RoundedRectangle(cornerRadius: 18))
             }.padding(14).frame(maxWidth: 520)
         }
+        .onAppear { directProviders = model.directProviders.installed }
     }
 
     @MainActor

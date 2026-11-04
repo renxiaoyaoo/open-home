@@ -76,23 +76,32 @@ struct RemoteProviderFactory: ProviderFactory {
 
 struct DirectProviderFactory: ProviderFactory {
     let registry: DirectProviderRegistry
+    let sessions = DirectSessionStore()
 
-    func gateProvider() throws -> any GateProvider { try registry.gate() }
-    func dryerProvider() throws -> any HomeProvider<DryerSnapshot> { try registry.dryer() }
-    func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> { try registry.vehicle() }
+    func gateProvider() throws -> any GateProvider { try registry.gate(session(.gate)) }
+    func dryerProvider() throws -> any HomeProvider<DryerSnapshot> { try registry.dryer(session(.living)) }
+    func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> { try registry.vehicle(session(.auto)) }
     func liveActivityRegistrar() -> (any LiveActivityRegistrar)? { nil }
+
+    private func session(_ provider: ProviderID) throws -> DirectProviderSession {
+        guard registry.installed.contains(provider) else { throw ProviderError.notInstalled(provider) }
+        guard let session = try sessions.load(provider: provider) else { throw ProviderError.authenticationRequired(provider) }
+        return session
+    }
 }
 
 struct DirectProviderRegistry: Sendable {
-    var gate: @Sendable () throws -> any GateProvider
-    var dryer: @Sendable () throws -> any HomeProvider<DryerSnapshot>
-    var vehicle: @Sendable () throws -> any HomeProvider<VehicleSnapshot>
+    let installed: Set<ProviderID>
+    var gate: @Sendable (DirectProviderSession) throws -> any GateProvider
+    var dryer: @Sendable (DirectProviderSession) throws -> any HomeProvider<DryerSnapshot>
+    var vehicle: @Sendable (DirectProviderSession) throws -> any HomeProvider<VehicleSnapshot>
     var authenticator: @Sendable (ProviderID) throws -> any DirectProviderAuthenticator
 
     static let unconfigured = Self(
-        gate: { throw ProviderError.notInstalled(.gate) },
-        dryer: { throw ProviderError.notInstalled(.living) },
-        vehicle: { throw ProviderError.notInstalled(.auto) },
+        installed: [],
+        gate: { _ in throw ProviderError.notInstalled(.gate) },
+        dryer: { _ in throw ProviderError.notInstalled(.living) },
+        vehicle: { _ in throw ProviderError.notInstalled(.auto) },
         authenticator: { throw ProviderError.notInstalled($0) }
     )
 }
@@ -112,19 +121,10 @@ enum ProviderError: LocalizedError {
 }
 
 #if DEBUG
-private final class DebugDirectAuthenticationState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var authenticated = false
-    func read() -> Bool { lock.withLock { authenticated } }
-    func signIn() { lock.withLock { authenticated = true } }
-}
-
 private struct DebugDirectAuthenticator: DirectProviderAuthenticator {
-    let state: DebugDirectAuthenticationState
     let configuration = DirectLoginConfiguration(methods: [.verificationCode, .password])
     func requestVerificationCode(account: String) async throws {}
     func signIn(account: String, secret: String, method: DirectLoginMethod) async throws -> DirectProviderSession {
-        state.signIn()
         return .init(accountID: "debug", displayName: "Preview", credential: Data("debug-session".utf8))
     }
 }
@@ -137,12 +137,12 @@ private struct DebugGateProvider: GateProvider {
 
 extension DirectProviderRegistry {
     static func debugAuthenticationPreview() -> Self {
-        let state = DebugDirectAuthenticationState()
         return Self(
-            gate: { guard state.read() else { throw ProviderError.authenticationRequired(.gate) }; return DebugGateProvider() },
-            dryer: { throw ProviderError.notInstalled(.living) },
-            vehicle: { throw ProviderError.notInstalled(.auto) },
-            authenticator: { provider in guard provider == .gate else { throw ProviderError.notInstalled(provider) }; return DebugDirectAuthenticator(state: state) }
+            installed: [.gate],
+            gate: { _ in DebugGateProvider() },
+            dryer: { _ in throw ProviderError.notInstalled(.living) },
+            vehicle: { _ in throw ProviderError.notInstalled(.auto) },
+            authenticator: { provider in guard provider == .gate else { throw ProviderError.notInstalled(provider) }; return DebugDirectAuthenticator() }
         )
     }
 }
