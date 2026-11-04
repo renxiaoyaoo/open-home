@@ -42,6 +42,11 @@ export async function unregisterLiveActivity(deviceId: string, rawActivityId: un
   return { activityId };
 }
 
+export async function removeLiveActivityTarget(rawActivityId: unknown) {
+  const activityId = identifier(rawActivityId, "Live Activity ID");
+  await (await getDb()).prepare("DELETE FROM live_activities WHERE activity_id=?").bind(activityId).run();
+}
+
 export async function liveActivityTargets(providerId: LiveActivityProvider, resourceId: string) {
   const rows = (await (await getDb()).prepare("SELECT l.activity_id AS activityId,l.push_token AS pushToken,l.environment FROM live_activities l JOIN client_devices d ON d.id=l.device_id WHERE l.provider=? AND l.resource_id=? AND d.revoked_at IS NULL").bind(providerId, resourceId).all<{ activityId: string; pushToken: string; environment: LiveActivityEnvironment }>()).results;
   return rows.map((row) => ({ activityId: row.activityId, pushToken: row.pushToken, environment: row.environment }));
