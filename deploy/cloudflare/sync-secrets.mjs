@@ -32,6 +32,10 @@ const sessionKey = values.get("OPENHOME_SESSION_ENCRYPTION_KEY");
 if (!sessionKey) throw new Error("Missing required secret: OPENHOME_SESSION_ENCRYPTION_KEY");
 const parts = source.match(/[\s\S]{1,4400}/g) || [];
 const secrets = [["OPENHOME_PROVIDER_BUNDLE_PART_COUNT", String(parts.length)], ...parts.map((value, index) => [`OPENHOME_PROVIDER_BUNDLE_PART_${index}`, value]), ["OPENHOME_SESSION_ENCRYPTION_KEY", sessionKey]];
+const apnsNames = ["OPENHOME_APNS_KEY_ID", "OPENHOME_APPLE_TEAM_ID", "OPENHOME_IOS_BUNDLE_ID", "OPENHOME_APNS_PRIVATE_KEY_BASE64"];
+const apnsValues = apnsNames.map((name) => values.get(name) || "");
+if (apnsValues.some(Boolean) && !apnsValues.every(Boolean)) throw new Error("ActivityKit remote updates require all APNs deployment values");
+if (apnsValues.every(Boolean)) secrets.push(...apnsNames.map((name, index) => [name, apnsValues[index]]));
 for (const [name, value] of secrets) {
   const result = spawnSync(wrangler, ["secret", "put", name, "--config", config], { input: `${value}\n`, encoding: "utf8" });
   if (result.status !== 0) { process.stderr.write(result.stderr || `Failed to sync ${name}\n`); process.exit(result.status || 1); }

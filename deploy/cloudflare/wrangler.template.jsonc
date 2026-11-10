@@ -7,6 +7,7 @@
   __ROUTES__
   "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "vars": { "OPENHOME_ACCESS_ENABLED": "__API_ENABLED__" },
+  "triggers": { "crons": ["* * * * *"] },
   "assets": { "directory": "dist/client" },
   "d1_databases": [{
     "binding": "DB",

@@ -12,6 +12,8 @@ Build from `deploy/docker/Dockerfile`, mount `/app/web/data`, and pass configura
 
 The Cloudflare adapter is optional. Set `OPENHOME_CF_DATABASE_ID` and optionally `OPENHOME_CF_DATABASE_NAME`, `OPENHOME_CF_CUSTOM_DOMAIN`, and `OPENHOME_ACCESS_ENABLED=1` in the private deployment environment, configure Worker secrets, then run `npm run cf:deploy` from `web`. The generated `web/wrangler.production.jsonc` is ignored. No account ID, database UUID, custom domain, or secret belongs in this repository.
 
+Cloudflare refreshes registered Live Activities once per minute. On Node, run `npm run live-activities:refresh` from any scheduler at the same cadence; both adapters execute the same transport-neutral refresh use case.
+
 For a private Web deployment, an identity proxy may protect the Web hostname and
 set the header named by `OPENHOME_BROWSER_IDENTITY_HEADER`. Native clients use a
 second, non-interactive API hostname routed to the same application and database;
