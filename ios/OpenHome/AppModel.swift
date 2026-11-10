@@ -55,6 +55,13 @@ final class AppModel {
         centerState = .disconnected
     }
 
+    func disconnectCenter(connectionStore: ConnectionStore = ConnectionStore()) async {
+        if let connection, connection.mode == .center, let baseURL = connection.centerURL {
+            try? await APIClient(baseURL: baseURL, credential: { try connectionStore.centerToken() }).revokeCenterSession()
+        }
+        disconnect(connectionStore: connectionStore)
+    }
+
     func validateCenter(connectionStore: ConnectionStore = ConnectionStore()) async {
         guard let connection, connection.mode == .center, let baseURL = connection.centerURL else {
             centerState = .disconnected

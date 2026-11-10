@@ -8,16 +8,24 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         NavigationStack {
-            VStack(spacing: 0) {
-                moduleSwitcher
-                Group {
-                    if model.connection == nil { ConnectionSetupView() }
-                    else { connectedContent }
+            Group {
+                if model.connection == nil {
+                    ConnectionSetupView()
+                } else {
+                    TabView(selection: $model.selectedModule) {
+                        ForEach(AppModel.Module.allCases) { module in
+                            connectedContent(module)
+                                .tabItem { Label(module.subtitle, systemImage: module.symbol) }
+                                .tag(module)
+                        }
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) { connectionMenu }
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color.openHomeBackground)
-            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
         }
         .tint(.openHomeAccent)
         .confirmationDialog("退出当前账号？", isPresented: $confirmingDirectLogout, titleVisibility: .visible) {
@@ -25,46 +33,25 @@ struct RootView: View {
             Button("取消", role: .cancel) {}
         } message: { Text(model.selectedModule.rawValue) }
         .confirmationDialog("断开 OpenHome？", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
-            Button("断开连接", role: .destructive) { model.disconnect() }
+            Button("断开连接", role: .destructive) { Task { await model.disconnectCenter() } }
             Button("取消", role: .cancel) {}
         } message: { Text("此设备的连接凭据将被移除") }
         .task(id: model.connection?.deviceCredentialID) { await model.validateCenter() }
     }
 
-    @ViewBuilder private var connectedContent: some View {
-        if model.connection?.enabledProviders.contains(model.selectedModule.providerID) != true {
-            ModuleUnavailableView(module: model.selectedModule, message: "此模块未启用")
+    @ViewBuilder private func connectedContent(_ module: AppModel.Module) -> some View {
+        if model.connection?.enabledProviders.contains(module.providerID) != true {
+            ModuleUnavailableView(module: module, message: "此模块未启用")
         } else if let factory = model.providerFactory() {
-            ProviderModuleView(module: model.selectedModule, factory: factory, directRegistry: model.connection?.mode == .direct ? model.directProviders : nil)
-                .id("\(model.selectedModule.id)-\(model.sessionRevision)")
+            ProviderModuleView(module: module, factory: factory, directRegistry: model.connection?.mode == .direct ? model.directProviders : nil)
+                .id("\(module.id)-\(model.sessionRevision)")
         } else {
-            ModuleUnavailableView(module: model.selectedModule, message: "连接配置不可用")
+            ModuleUnavailableView(module: module, message: "连接配置不可用")
         }
     }
 
-    private var moduleSwitcher: some View {
-        HStack(spacing: 6) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 7) {
-                ForEach(AppModel.Module.allCases) { module in
-                    let selected = model.selectedModule == module
-                    Button { model.selectedModule = module } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: module.symbol).foregroundStyle(selected ? .white : .primary).frame(width: 24, height: 24).background(.white.opacity(selected ? 0.18 : 1), in: RoundedRectangle(cornerRadius: 7))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(module.rawValue).font(.system(size: 12, weight: .semibold)).foregroundStyle(selected ? .white : .primary)
-                                Text(module.subtitle).font(.system(size: 9)).foregroundStyle(selected ? .white.opacity(0.78) : .secondary)
-                            }
-                        }
-                        .padding(.horizontal, 10).frame(height: 48)
-                        .background(selected ? Color.openHomeAccent : .white, in: RoundedRectangle(cornerRadius: 13))
-                    }
-                    .buttonStyle(.plain)
-                }
-                }.padding(.leading, 14)
-            }
-            .scrollIndicators(.hidden)
-            Menu {
+    private var connectionMenu: some View {
+        Menu {
                 if case .connected(let session) = model.centerState {
                     Text(session.deviceName)
                 } else if case .unavailable = model.centerState {
@@ -78,11 +65,8 @@ struct RootView: View {
                 Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") {
                     if model.connection?.mode == .center { confirmingDisconnect = true } else { model.disconnect() }
                 }
-            } label: { Image(systemName: "ellipsis.circle").font(.title3).frame(width: 40, height: 48).background(.white, in: RoundedRectangle(cornerRadius: 13)) }
-            .buttonStyle(.plain).padding(.trailing, 14)
-        }
-        .padding(.vertical, 12)
-        .background(.thinMaterial)
+        } label: { Image(systemName: "ellipsis.circle") }
+        .accessibilityLabel("连接管理")
     }
 }
 

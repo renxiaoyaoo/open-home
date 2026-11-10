@@ -83,6 +83,12 @@ extension APIClient {
         let response: Envelope<CenterSession> = try await get("client/session")
         return response.data
     }
+
+    func revokeCenterSession() async throws {
+        let _: Envelope<RevokedCenterSession> = try await request("client/session", method: "DELETE")
+    }
+
+    private struct RevokedCenterSession: Decodable, Sendable { let deviceId: String }
 }
 
 struct RemoteLiveActivityRegistrar: LiveActivityRegistrar {

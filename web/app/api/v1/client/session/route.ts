@@ -1,4 +1,4 @@
-import { authenticateDevice } from "@/lib/client-auth";
+import { authenticateDevice, revokeDevice } from "@/lib/client-auth";
 import { jsonError } from "@/lib/http";
 
 export async function GET(request: Request) {
@@ -13,6 +13,16 @@ export async function GET(request: Request) {
         serverTime: new Date().toISOString(),
       },
     });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const device = await authenticateDevice(request);
+    await revokeDevice(device.deviceID);
+    return Response.json({ ok: true, data: { deviceId: device.deviceID } });
   } catch (error) {
     return jsonError(error);
   }

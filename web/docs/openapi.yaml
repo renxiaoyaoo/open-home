@@ -12,6 +12,7 @@ paths:
     post: { summary: Exchange an activation secret for an independent device token, security: [], responses: { "200": { description: Device identity and token } } }
   /client/session:
     get: { summary: Validate the current OpenHome client device session, security: [{ deviceToken: [] }], responses: { "200": { description: Active device session } } }
+    delete: { summary: Revoke the current OpenHome client device token, security: [{ deviceToken: [] }], responses: { "200": { description: Device revoked } } }
   /live-activities:
     post: { summary: Register an ActivityKit update token for a live dryer or vehicle, security: [{ deviceToken: [] }], responses: { "200": { description: Registered } } }
     delete: { summary: Remove an ended ActivityKit registration, security: [{ deviceToken: [] }], responses: { "200": { description: Removed } } }

@@ -50,3 +50,9 @@ export async function authenticateDevice(request: Request) {
   await db.prepare("UPDATE client_devices SET last_seen_at=? WHERE id=?").bind(Date.now(), row.id).run();
   return { deviceID: row.id, deviceName: row.name, createdAt: row.createdAt };
 }
+
+export async function revokeDevice(deviceID: string) {
+  const revoked = await (await getDb()).prepare("UPDATE client_devices SET revoked_at=? WHERE id=? AND revoked_at IS NULL RETURNING id").bind(Date.now(), deviceID).first<{ id: string }>();
+  if (!revoked) throw new ClientAuthorizationError("Device authorization failed");
+  return { deviceID };
+}
