@@ -45,8 +45,8 @@ export async function authenticateDevice(request: Request) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
   const match = /^([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/i.exec(token);
   if (!match) throw new ClientAuthorizationError("Device authorization failed");
-  const db = await getDb(); const row = await db.prepare("SELECT id,token_hash AS tokenHash FROM client_devices WHERE id=? AND revoked_at IS NULL").bind(match[1]).first<{ id: string; tokenHash: string }>();
+  const db = await getDb(); const row = await db.prepare("SELECT id,name,token_hash AS tokenHash,created_at AS createdAt FROM client_devices WHERE id=? AND revoked_at IS NULL").bind(match[1]).first<{ id: string; name: string; tokenHash: string; createdAt: number }>();
   if (!row || !safeEqual(row.tokenHash, digest("device", match[2]))) throw new ClientAuthorizationError("Device authorization failed");
   await db.prepare("UPDATE client_devices SET last_seen_at=? WHERE id=?").bind(Date.now(), row.id).run();
-  return { deviceID: row.id };
+  return { deviceID: row.id, deviceName: row.name, createdAt: row.createdAt };
 }

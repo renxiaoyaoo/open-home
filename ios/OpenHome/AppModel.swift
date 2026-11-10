@@ -4,6 +4,13 @@ import Observation
 @MainActor
 @Observable
 final class AppModel {
+    enum CenterState: Equatable {
+        case disconnected
+        case validating
+        case connected(CenterSession)
+        case unavailable(String)
+        case revoked
+    }
     enum Module: String, CaseIterable, Identifiable {
         case gate = "OpenGate"
         case living = "OpenLiving"
@@ -32,17 +39,35 @@ final class AppModel {
 
     var selectedModule: Module = .gate
     var connection: ConnectionConfiguration?
+    var centerState: CenterState = .disconnected
     var sessionRevision = 0
     let directProviders: DirectProviderRegistry
 
     init(connectionStore: ConnectionStore = ConnectionStore(), directProviders: DirectProviderRegistry = .unconfigured) {
         connection = connectionStore.load()
         self.directProviders = directProviders
+        if connection?.mode == .center { centerState = .validating }
     }
 
     func disconnect(connectionStore: ConnectionStore = ConnectionStore()) {
         connectionStore.clear()
         connection = nil
+        centerState = .disconnected
+    }
+
+    func validateCenter(connectionStore: ConnectionStore = ConnectionStore()) async {
+        guard let connection, connection.mode == .center, let baseURL = connection.centerURL else {
+            centerState = .disconnected
+            return
+        }
+        centerState = .validating
+        do {
+            centerState = .connected(try await APIClient(baseURL: baseURL, credential: { try connectionStore.centerToken() }).centerSession())
+        } catch APIError.unauthorized {
+            centerState = .revoked
+        } catch {
+            centerState = .unavailable(error.localizedDescription)
+        }
     }
 
     func signOutSelectedDirectProvider(sessionStore: DirectSessionStore = DirectSessionStore()) throws {

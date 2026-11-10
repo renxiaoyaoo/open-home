@@ -41,6 +41,8 @@ test("consumes a self-contained activation once and authenticates the issued dev
   const device = await activateClient(payload.code, "Test iPhone");
   const authenticated = await authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } }));
   assert.equal(authenticated.deviceID, device.deviceID);
+  assert.equal(authenticated.deviceName, "Test iPhone");
+  assert.equal(typeof authenticated.createdAt, "number");
   const { liveActivityTargets, registerLiveActivity, unregisterLiveActivity } = await import("../lib/live-activities.ts");
   const token = "ab".repeat(32);
   await registerLiveActivity(device.deviceID, { activityId: "activity-1", provider: "living", resourceId: "dryer-1", pushToken: token, environment: "sandbox" });

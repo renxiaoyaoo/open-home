@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingDirectLogout = false
+    @State private var confirmingDisconnect = false
 
     var body: some View {
         @Bindable var model = model
@@ -23,6 +24,11 @@ struct RootView: View {
             Button("确认退出", role: .destructive) { try? model.signOutSelectedDirectProvider() }
             Button("取消", role: .cancel) {}
         } message: { Text(model.selectedModule.rawValue) }
+        .confirmationDialog("断开 OpenHome？", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
+            Button("断开连接", role: .destructive) { model.disconnect() }
+            Button("取消", role: .cancel) {}
+        } message: { Text("此设备的连接凭据将被移除") }
+        .task(id: model.connection?.deviceCredentialID) { await model.validateCenter() }
     }
 
     @ViewBuilder private var connectedContent: some View {
@@ -59,10 +65,19 @@ struct RootView: View {
             }
             .scrollIndicators(.hidden)
             Menu {
+                if case .connected(let session) = model.centerState {
+                    Text(session.deviceName)
+                } else if case .unavailable = model.centerState {
+                    Button("重新检查连接", systemImage: "arrow.clockwise") { Task { await model.validateCenter() } }
+                } else if model.centerState == .revoked {
+                    Text("连接已失效")
+                }
                 if model.connection?.mode == .direct {
                     Button("退出当前账号", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmingDirectLogout = true }
                 }
-                Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") { model.disconnect() }
+                Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") {
+                    if model.connection?.mode == .center { confirmingDisconnect = true } else { model.disconnect() }
+                }
             } label: { Image(systemName: "ellipsis.circle").font(.title3).frame(width: 40, height: 48).background(.white, in: RoundedRectangle(cornerRadius: 13)) }
             .buttonStyle(.plain).padding(.trailing, 14)
         }
@@ -125,6 +140,7 @@ private struct ConnectionSetupView: View {
         do {
             let result = try await ActivationClient().activate(package: activationCode.trimmingCharacters(in: .whitespacesAndNewlines), deviceName: "iPhone")
             model.connection = try ConnectionStore().saveCenter(result)
+            await model.validateCenter()
             activationCode = ""
         } catch { errorMessage = error.localizedDescription }
     }

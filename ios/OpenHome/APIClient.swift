@@ -71,6 +71,20 @@ private extension JSONEncoder {
 
 struct Envelope<Value: Decodable & Sendable>: Decodable, Sendable { let data: Value }
 
+struct CenterSession: Decodable, Sendable, Equatable {
+    let deviceId: String
+    let deviceName: String
+    let createdAt: Date
+    let serverTime: Date
+}
+
+extension APIClient {
+    func centerSession() async throws -> CenterSession {
+        let response: Envelope<CenterSession> = try await get("client/session")
+        return response.data
+    }
+}
+
 struct RemoteLiveActivityRegistrar: LiveActivityRegistrar {
     let client: APIClient
 
