@@ -43,10 +43,35 @@ final class AppModel {
     var sessionRevision = 0
     let directProviders: DirectProviderRegistry
 
+    var enabledModules: [Module] {
+        guard let enabled = connection?.enabledProviders else { return [] }
+        return Module.allCases.filter { enabled.contains($0.providerID) }
+    }
+
+    var availableModules: [Module] {
+        guard let connection else { return [] }
+        switch connection.mode {
+        case .center: return Module.allCases
+        case .direct: return Module.allCases.filter { directProviders.installed.contains($0.providerID) }
+        }
+    }
+
     init(connectionStore: ConnectionStore = ConnectionStore(), directProviders: DirectProviderRegistry = .unconfigured) {
         connection = connectionStore.load()
         self.directProviders = directProviders
         if connection?.mode == .center { centerState = .validating }
+        if let first = Module.allCases.first(where: { connection?.enabledProviders.contains($0.providerID) == true }) { selectedModule = first }
+    }
+
+    func setModule(_ module: Module, enabled: Bool, connectionStore: ConnectionStore = ConnectionStore()) throws {
+        guard let current = connection, availableModules.contains(module) else { return }
+        var providers = current.enabledProviders
+        if enabled { providers.insert(module.providerID) } else { providers.remove(module.providerID) }
+        let updated = ConnectionConfiguration(mode: current.mode, centerURL: current.centerURL, deviceCredentialID: current.deviceCredentialID, enabledProviders: providers)
+        try connectionStore.save(updated)
+        connection = updated
+        if enabled { selectedModule = module }
+        else if selectedModule == module, let first = enabledModules.first { selectedModule = first }
     }
 
     func disconnect(connectionStore: ConnectionStore = ConnectionStore()) {

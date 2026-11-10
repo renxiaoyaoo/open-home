@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingDirectLogout = false
     @State private var confirmingDisconnect = false
+    @State private var showingModules = false
 
     var body: some View {
         @Bindable var model = model
@@ -12,11 +13,22 @@ struct RootView: View {
                 if model.connection == nil {
                     ConnectionSetupView()
                 } else {
-                    TabView(selection: $model.selectedModule) {
-                        ForEach(AppModel.Module.allCases) { module in
-                            connectedContent(module)
-                                .tabItem { Label(module.subtitle, systemImage: module.symbol) }
-                                .tag(module)
+                    Group {
+                        if model.enabledModules.isEmpty {
+                            ContentUnavailableView {
+                                Label("尚未添加模块", systemImage: "square.grid.2x2")
+                            } actions: {
+                                Button("添加模块") { showingModules = true }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                        } else {
+                            TabView(selection: $model.selectedModule) {
+                                ForEach(model.enabledModules) { module in
+                                    connectedContent(module)
+                                        .tabItem { Label(module.subtitle, systemImage: module.symbol) }
+                                        .tag(module)
+                                }
+                            }
                         }
                     }
                     .toolbar {
@@ -37,6 +49,7 @@ struct RootView: View {
             Button("取消", role: .cancel) {}
         } message: { Text("此设备的连接凭据将被移除") }
         .task(id: model.connection?.deviceCredentialID) { await model.validateCenter() }
+        .sheet(isPresented: $showingModules) { ModuleManagementView() }
     }
 
     @ViewBuilder private func connectedContent(_ module: AppModel.Module) -> some View {
@@ -62,11 +75,52 @@ struct RootView: View {
                 if model.connection?.mode == .direct {
                     Button("退出当前账号", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmingDirectLogout = true }
                 }
+                Button("管理模块", systemImage: "square.grid.2x2") { showingModules = true }
                 Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") {
                     if model.connection?.mode == .center { confirmingDisconnect = true } else { model.disconnect() }
                 }
         } label: { Image(systemName: "ellipsis.circle") }
         .accessibilityLabel("连接管理")
+    }
+}
+
+private struct ModuleManagementView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(model.availableModules) { module in
+                        Toggle(isOn: Binding(
+                            get: { model.connection?.enabledProviders.contains(module.providerID) == true },
+                            set: { enabled in
+                                do { try model.setModule(module, enabled: enabled); errorMessage = nil }
+                                catch { errorMessage = error.localizedDescription }
+                            }
+                        )) {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(module.rawValue)
+                                    Text(module.subtitle).font(.caption).foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: module.symbol).foregroundStyle(Color.openHomeAccent)
+                            }
+                        }
+                    }
+                } footer: {
+                    Text(model.connection?.mode == .center ? "模块使用同一 OpenHome 中心连接。" : "仅显示此设备已安装的直连 Provider。")
+                }
+                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+            }
+            .navigationTitle("模块")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

@@ -24,6 +24,10 @@ struct ConnectionStore {
         return configuration
     }
 
+    func save(_ configuration: ConnectionConfiguration) throws {
+        defaults.set(try JSONEncoder().encode(configuration), forKey: configurationKey)
+    }
+
     func clear() {
         defaults.removeObject(forKey: configurationKey)
         try? keychain.delete(account: tokenAccount)
