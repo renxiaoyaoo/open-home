@@ -191,6 +191,12 @@ actor RemoteDryerProvider: DryerProvider {
         let _: Envelope<DryerWire.Ignored> = try await client.send("dryer/program", method: "POST", body: DryerWire.ProgramRequest(deviceId: value.device.applianceCode, programId: program.value))
     }
 
+    func configureProgram(_ program: DryerProgram, parameters: [String: Int]) async throws {
+        let value = try await resolveDryer()
+        let body = DryerWire.ConfiguredProgramRequest(deviceId: value.device.applianceCode, programId: program.value, parameters: parameters)
+        let _: Envelope<DryerWire.Ignored> = try await client.send("dryer/program", method: "POST", body: body)
+    }
+
     func setPower(_ powered: Bool) async throws {
         let value = try await resolveDryer()
         let _: Envelope<DryerWire.Ignored> = try await client.send("dryer/power", method: "POST", body: DryerWire.PowerRequest(deviceId: value.device.applianceCode, power: powered))
@@ -234,6 +240,7 @@ private enum DryerWire {
     struct Device: Decodable, Sendable { let applianceCode: String; let name: String?; let type: StringOrNumber }
     struct Capabilities: Decodable, Sendable { let programs: [DryerProgram] }
     struct ProgramRequest: Encodable, Sendable { let deviceId: String; let programId: Int }
+    struct ConfiguredProgramRequest: Encodable, Sendable { let deviceId: String; let programId: Int; let parameters: [String: Int] }
     struct PowerRequest: Encodable, Sendable { let deviceId: String; let power: Bool }
     struct ActionRequest: Encodable, Sendable { let deviceId: String; let action: String; let data: [String: Int] }
     struct Ignored: Decodable, Sendable { init(from decoder: Decoder) throws {} }

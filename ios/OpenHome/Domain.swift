@@ -57,7 +57,23 @@ struct DryerProgram: Codable, Sendable, Identifiable, Equatable {
     let minutes: Int
     let description: String?
     let icon: String
+    let parameters: [DryerProgramParameter]?
     var id: String { "\(group)|\(value)|\(name)" }
+}
+
+struct DryerProgramParameter: Codable, Sendable, Identifiable, Equatable {
+    let property: String
+    let name: String
+    let values: [DryerProgramOption]
+    let defaultIndex: Int
+    let description: String?
+    var id: String { property }
+}
+
+struct DryerProgramOption: Codable, Sendable, Identifiable, Equatable {
+    let value: Int
+    let label: String
+    var id: Int { value }
 }
 
 enum DryerCommand: Sendable { case start, pause, cancelSchedule, schedule(delayMinutes: Int) }
@@ -65,6 +81,7 @@ enum DryerCommand: Sendable { case start, pause, cancelSchedule, schedule(delayM
 protocol DryerProvider: HomeProvider where Snapshot == DryerSnapshot {
     func programs() async throws -> [DryerProgram]
     func selectProgram(_ program: DryerProgram) async throws
+    func configureProgram(_ program: DryerProgram, parameters: [String: Int]) async throws
     func setPower(_ powered: Bool) async throws
     func command(_ command: DryerCommand) async throws
 }

@@ -9,6 +9,7 @@ final class DryerViewModel {
     var programGroup = "日常程序"
     var showsAllPrograms = false
     var scheduledStart = Calendar.current.date(bySettingHour: 23, minute: 0, second: 0, of: .now) ?? .now
+    var parameterValues: [String: Int] = [:]
     var isLoading = false
     var isOperating = false
     var message: String?
@@ -34,7 +35,17 @@ final class DryerViewModel {
         do { let value = try await provider.snapshot(); snapshot = value; message = nil; await updateLiveStatus(value); if programs.isEmpty { programs = (try? await provider.programs()) ?? [] } }
         catch { message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
     }
-    func select(_ program: DryerProgram) async { guard canChangeProgram else { return }; await operate { try await provider.selectProgram(program) } }
+    func select(_ program: DryerProgram) async {
+        guard canChangeProgram else { return }
+        parameterValues = defaultParameters(program)
+        await operate { try await provider.selectProgram(program) }
+    }
+    func configure(_ program: DryerProgram, parameters: [String: Int]) async -> Bool {
+        guard canChangeProgram else { return false }
+        let succeeded = await operate { try await provider.configureProgram(program, parameters: parameters) }
+        if succeeded { parameterValues = parameters }
+        return succeeded
+    }
     func togglePower() async { await operate { try await provider.setPower(snapshot?.state == .off) } }
     func primaryAction() async {
         switch snapshot?.state { case .scheduled: await operate { try await provider.command(.cancelSchedule) }; case .running: await operate { try await provider.command(.pause) }; default: await operate { try await provider.command(.start) } }
@@ -50,13 +61,22 @@ final class DryerViewModel {
         let calendar = Calendar.current; let now = Date(); let components = calendar.dateComponents([.hour, .minute], from: scheduledStart)
         var start = calendar.date(bySettingHour: components.hour ?? 23, minute: components.minute ?? 0, second: 0, of: now) ?? now
         if start <= now { start = calendar.date(byAdding: .day, value: 1, to: start) ?? start }
-        return calendar.date(byAdding: .minute, value: program.minutes, to: start)
+        return calendar.date(byAdding: .minute, value: duration(for: program), to: start)
     }
-    private func operate(extraDelay: Duration = .seconds(1), operation: () async throws -> Void) async {
-        guard !isOperating else { return }
+    func defaultParameters(_ program: DryerProgram) -> [String: Int] {
+        Dictionary(uniqueKeysWithValues: (program.parameters ?? []).compactMap { parameter in
+            guard parameter.values.indices.contains(parameter.defaultIndex) else { return nil }
+            return (parameter.property, parameter.values[parameter.defaultIndex].value)
+        })
+    }
+    func duration(for program: DryerProgram) -> Int {
+        program.minutes + ((parameterValues["dry_time_new"] ?? defaultParameters(program)["dry_time_new"]) ?? 0)
+    }
+    @discardableResult private func operate(extraDelay: Duration = .seconds(1), operation: () async throws -> Void) async -> Bool {
+        guard !isOperating else { return false }
         isOperating = true; defer { isOperating = false }
-        do { try await operation(); try? await Task.sleep(for: extraDelay); let value = try await provider.snapshot(); snapshot = value; message = nil; await updateLiveStatus(value) }
-        catch { message = error.localizedDescription }
+        do { try await operation(); try? await Task.sleep(for: extraDelay); let value = try await provider.snapshot(); snapshot = value; message = nil; await updateLiveStatus(value); return true }
+        catch { message = error.localizedDescription; return false }
     }
     private func updateLiveStatus(_ value: DryerSnapshot) async {
         let active = value.state == .running || value.state == .scheduled || value.state == .paused
@@ -71,20 +91,29 @@ struct DryerView: View {
     @State private var model: DryerViewModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmsPowerOff = false
+    @State private var configuringProgram: DryerProgram?
     init(provider: any DryerProvider, registrar: (any LiveActivityRegistrar)? = nil) { _model = State(initialValue: DryerViewModel(provider: provider, registrar: registrar)) }
 
     var body: some View {
         ScrollView {
             if let value = model.snapshot {
-                VStack(spacing: 12) { statusCard(value); scheduleCard(value); programCard; controlCard(value); if let message = model.message { Text(message).font(.caption).foregroundStyle(.red) } }.padding(14).frame(maxWidth: 520)
+                VStack(spacing: 12) { statusCard(value); scheduleCard(value); programCard; if let message = model.message { Text(message).font(.caption).foregroundStyle(.red) } }.padding(14).frame(maxWidth: 520)
             } else if model.isLoading { ProgressView().padding(.top, 100) }
             else { ContentUnavailableView("设备暂时未加载", systemImage: "washer", description: Text(model.message ?? "下拉重试")) }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let value = model.snapshot { controlCard(value).padding(.horizontal, 14).padding(.vertical, 8).background(.ultraThinMaterial) }
         }
         .task(id: scenePhase) { guard scenePhase == .active else { return }; while !Task.isCancelled { await model.refresh(); try? await Task.sleep(for: model.refreshInterval) } }
         .refreshable { await model.refresh() }
         .confirmationDialog("关机？", isPresented: $confirmsPowerOff, titleVisibility: .visible) {
             Button("确认关机", role: .destructive) { Task { await model.togglePower() } }; Button("取消", role: .cancel) {}
         } message: { Text(model.snapshot?.state == .scheduled ? "关机会同时取消当前预约。" : "干衣机将停止运行。") }
+        .sheet(item: $configuringProgram) { program in
+            DryerProgramSettingsView(program: program, current: model.parameterValues.isEmpty ? model.defaultParameters(program) : model.parameterValues) { parameters in
+                await model.configure(program, parameters: parameters)
+            }
+        }
     }
 
     private func statusCard(_ value: DryerSnapshot) -> some View {
@@ -113,6 +142,11 @@ struct DryerView: View {
                 }
             }
             if model.programGroup != "DIY", model.programs.filter({ $0.group == model.programGroup }).count > 4 { Button(model.showsAllPrograms ? "收起" : "更多") { model.showsAllPrograms.toggle() }.font(.caption.bold()).frame(maxWidth: .infinity) }
+            if let selected = model.selectedProgram, selected.group == model.programGroup, !(selected.parameters ?? []).isEmpty, model.canChangeProgram {
+                Button { configuringProgram = selected } label: {
+                    HStack { VStack(alignment: .leading, spacing: 2) { Text(selected.name).font(.subheadline.bold()); if let description = selected.description { Text(description).font(.caption2).foregroundStyle(.secondary).lineLimit(2) } }; Spacer(); Text("参数设置").font(.caption.bold()).foregroundStyle(Color.openHomeLiving); Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary) }.padding(12).background(Color.openHomeLiving.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                }.buttonStyle(.plain)
+            }
         }.padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16))
     }
     private func controlCard(_ value: DryerSnapshot) -> some View {
@@ -125,6 +159,50 @@ struct DryerView: View {
     private func actionTitle(_ state: DryerSnapshot.State) -> String { switch state { case .scheduled: "取消预约"; case .running: "暂停"; case .paused: "继续"; default: "启动" } }
     private func actionSymbol(_ state: DryerSnapshot.State) -> String { switch state { case .scheduled: "xmark"; case .running: "pause.fill"; default: "play.fill" } }
     private func programSymbol(_ icon: String) -> String { switch icon { case "large", "bedding": "bed.double.fill"; case "timed": "timer"; case "warm": "flame.fill"; case "fresh": "wind"; case "sport": "figure.run"; case "shirt": "tshirt.fill"; default: "sparkles" } }
+}
+
+private struct DryerProgramSettingsView: View {
+    let program: DryerProgram
+    let apply: ([String: Int]) async -> Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var selection: [String: Int]
+    @State private var isApplying = false
+    @State private var message: String?
+
+    init(program: DryerProgram, current: [String: Int], apply: @escaping ([String: Int]) async -> Bool) {
+        self.program = program; self.apply = apply; _selection = State(initialValue: current)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack(spacing: 12) { Image(systemName: "slider.horizontal.3").font(.title2).foregroundStyle(Color.openHomeLiving); VStack(alignment: .leading, spacing: 2) { Text(program.name).font(.headline); Text("运行时长 \(duration) 分钟").font(.caption).foregroundStyle(.secondary) } }
+                    if let description = program.description { Text(description).font(.subheadline).foregroundStyle(.secondary) }
+                }
+                ForEach(program.parameters ?? []) { parameter in
+                    Section(parameter.name) {
+                        Picker(parameter.name, selection: Binding(get: { selection[parameter.property] ?? defaultValue(parameter) }, set: { selection[parameter.property] = $0 })) {
+                            ForEach(parameter.values) { option in Text(option.label).tag(option.value) }
+                        }.pickerStyle(.inline).labelsHidden()
+                        if let description = parameter.description { Text(description).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                if let message { Section { Text(message).foregroundStyle(.red) } }
+            }
+            .navigationTitle("参数设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(isApplying) }
+                ToolbarItem(placement: .confirmationAction) { Button(isApplying ? "应用中…" : "应用") { Task { await submit() } }.disabled(isApplying) }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var duration: Int { program.minutes + (selection["dry_time_new"] ?? 0) }
+    private func defaultValue(_ parameter: DryerProgramParameter) -> Int { parameter.values.indices.contains(parameter.defaultIndex) ? parameter.values[parameter.defaultIndex].value : parameter.values.first?.value ?? 0 }
+    @MainActor private func submit() async { isApplying = true; message = nil; let succeeded = await apply(selection); isApplying = false; if succeeded { dismiss() } else { message = "参数设置失败，请重试" } }
 }
 
 extension DryerSnapshot.State { var label: String { switch self { case .off: "已关机"; case .idle: "待机"; case .running: "烘干中"; case .paused: "已暂停"; case .scheduled: "已预约"; case .finished: "已完成"; case .fault: "设备故障" } } }
