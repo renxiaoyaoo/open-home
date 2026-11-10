@@ -40,7 +40,7 @@ export function autoLiveActivity(summary: VehicleSummary, now = new Date()): Liv
   const state = warnings ? `${warnings} 项异常` : charging ? "充电中" : moving ? "行驶中" : summary.powerState === "on" ? "已启动" : "已熄火";
   const detail = charging && summary.tractionBatteryPercent !== undefined ? `电量 ${summary.tractionBatteryPercent}%` : moving ? `${summary.speedKph} km/h` : summary.estimatedRangeKm !== undefined ? `续航 ${summary.estimatedRangeKm} km` : summary.locationName || null;
   return {
-    event: "update",
+    event: charging || summary.powerState === "on" ? "update" : "end",
     state: {
       title: summary.name || "车辆",
       state,

@@ -11,6 +11,13 @@ final class DryerViewModel {
     private let liveStatus: LiveStatusManager
     private var activityID: String?
 
+    var refreshInterval: Duration {
+        switch snapshot?.state {
+        case .running, .paused, .scheduled: return .seconds(5)
+        default: return .seconds(30)
+        }
+    }
+
     init(provider: any HomeProvider<DryerSnapshot>, registrar: (any LiveActivityRegistrar)? = nil) { self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar) }
 
     func refresh() async {
@@ -49,10 +56,12 @@ struct DryerView: View {
             } else if model.isLoading { ProgressView().padding(.top, 100) }
             else { ContentUnavailableView("设备暂时未加载", systemImage: "washer", description: Text(model.message ?? "下拉重试")) }
         }
-        .task { await model.refresh() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
-            while !Task.isCancelled { try? await Task.sleep(for: .seconds(10)); await model.refresh() }
+            while !Task.isCancelled {
+                await model.refresh()
+                try? await Task.sleep(for: model.refreshInterval)
+            }
         }
         .refreshable { await model.refresh() }
     }

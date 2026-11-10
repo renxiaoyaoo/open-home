@@ -20,3 +20,7 @@ test("maps the real-time vehicle status to a compact activity", () => {
   const snapshot = autoLiveActivity({ id: "vehicle", name: "车辆", powerState: "off", chargingState: "charging", tractionBatteryPercent: 64, remainingChargeMinutes: 35 }, new Date("2026-11-04T10:00:00Z"));
   assert.deepEqual(snapshot, { event: "update", state: { title: "车辆", state: "充电中", detail: "电量 64%", progress: 0.64, expectedEnd: new Date("2026-11-04T10:35:00Z") } });
 });
+
+test("ends a vehicle activity after charging and driving stop", () => {
+  assert.equal(autoLiveActivity({ id: "vehicle", name: "车辆", powerState: "off", chargingState: "idle" }).event, "end");
+});

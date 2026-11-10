@@ -11,6 +11,13 @@ final class VehicleViewModel {
     private let liveStatus: LiveStatusManager
     private var activityID: String?
 
+    var refreshInterval: Duration {
+        switch snapshot?.state {
+        case .ready, .driving, .charging: return .seconds(5)
+        default: return .seconds(30)
+        }
+    }
+
     init(provider: any HomeProvider<VehicleSnapshot>, registrar: (any LiveActivityRegistrar)? = nil) { self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar) }
 
     func refresh() async {
@@ -43,8 +50,13 @@ struct VehicleView: View {
             else if model.isLoading { ProgressView().padding(.top, 100) }
             else { ContentUnavailableView("车辆暂时未加载", systemImage: "car.side", description: Text(model.message ?? "下拉重试")) }
         }
-        .task { await model.refresh() }
-        .task(id: scenePhase) { guard scenePhase == .active else { return }; while !Task.isCancelled { try? await Task.sleep(for: .seconds(10)); await model.refresh() } }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await model.refresh()
+                try? await Task.sleep(for: model.refreshInterval)
+            }
+        }
         .refreshable { await model.refresh() }
     }
 
