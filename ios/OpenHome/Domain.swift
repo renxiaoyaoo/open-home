@@ -50,6 +50,25 @@ protocol HomeProvider<Snapshot>: Sendable {
     func snapshot() async throws -> Snapshot
 }
 
+struct DryerProgram: Codable, Sendable, Identifiable, Equatable {
+    let value: Int
+    let name: String
+    let group: String
+    let minutes: Int
+    let description: String?
+    let icon: String
+    var id: String { "\(group)|\(value)|\(name)" }
+}
+
+enum DryerCommand: Sendable { case start, pause, cancelSchedule, schedule(delayMinutes: Int) }
+
+protocol DryerProvider: HomeProvider where Snapshot == DryerSnapshot {
+    func programs() async throws -> [DryerProgram]
+    func selectProgram(_ program: DryerProgram) async throws
+    func setPower(_ powered: Bool) async throws
+    func command(_ command: DryerCommand) async throws
+}
+
 struct LockDevice: Codable, Sendable, Identifiable, Equatable { let id: String; let name: String }
 struct LockDetail: Codable, Sendable, Equatable {
     let name: String?
@@ -80,6 +99,7 @@ struct DryerSnapshot: Codable, Sendable, Equatable {
     let name: String
     let state: State
     let programName: String?
+    let programID: Int?
     let remainingMinutes: Int?
     let expectedFinish: Date?
 

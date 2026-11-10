@@ -160,14 +160,14 @@ struct RemoteLockProvider: LockProvider {
     }
 }
 
-actor RemoteDryerProvider: HomeProvider {
+actor RemoteDryerProvider: DryerProvider {
     let client: APIClient
-    private var dryer: DryerWire.Device?
+    private var resolved: (device: DryerWire.Device, homeID: String)?
 
     init(client: APIClient) { self.client = client }
 
     func snapshot() async throws -> DryerSnapshot {
-        let device = try await resolveDryer()
+        let device = try await resolveDryer().device
         let response: Envelope<DryerWire.Status> = try await client.get("dryer/status", query: [.init(name: "deviceId", value: device.applianceCode)])
         let values = response.data.values
         let powered = values["dryer.power"]?.boolValue == true
@@ -177,19 +177,48 @@ actor RemoteDryerProvider: HomeProvider {
         let state: DryerSnapshot.State
         if !powered { state = .off }
         else { switch status { case 2: state = .running; case 3, 9: state = .paused; case 4, 8: state = .scheduled; case 5: state = .fault; case 6: state = .finished; default: state = .idle } }
-        return DryerSnapshot(deviceID: device.applianceCode, name: device.name ?? "干衣机", state: state, programName: DryerWire.programs[programID ?? -1], remainingMinutes: remaining, expectedFinish: remaining.map { Date().addingTimeInterval(TimeInterval($0 * 60)) })
+        return DryerSnapshot(deviceID: device.applianceCode, name: device.name ?? "干衣机", state: state, programName: DryerWire.programs[programID ?? -1], programID: programID, remainingMinutes: remaining, expectedFinish: remaining.map { Date().addingTimeInterval(TimeInterval($0 * 60)) })
     }
 
-    private func resolveDryer() async throws -> DryerWire.Device {
-        if let dryer { return dryer }
+    func programs() async throws -> [DryerProgram] {
+        let value = try await resolveDryer()
+        let response: Envelope<DryerWire.Capabilities> = try await client.get("dryer/capabilities", query: [.init(name: "homeId", value: value.homeID), .init(name: "deviceId", value: value.device.applianceCode)])
+        return response.data.programs
+    }
+
+    func selectProgram(_ program: DryerProgram) async throws {
+        let value = try await resolveDryer()
+        let _: Envelope<DryerWire.Ignored> = try await client.send("dryer/program", method: "POST", body: DryerWire.ProgramRequest(deviceId: value.device.applianceCode, programId: program.value))
+    }
+
+    func setPower(_ powered: Bool) async throws {
+        let value = try await resolveDryer()
+        let _: Envelope<DryerWire.Ignored> = try await client.send("dryer/power", method: "POST", body: DryerWire.PowerRequest(deviceId: value.device.applianceCode, power: powered))
+    }
+
+    func command(_ command: DryerCommand) async throws {
+        let value = try await resolveDryer()
+        let action: String; let data: [String: Int]
+        switch command {
+        case .start: action = "startDrying"; data = [:]
+        case .pause: action = "pauseDrying"; data = [:]
+        case .cancelSchedule: action = "cancelAppointmentDrying"; data = [:]
+        case .schedule(let delay): action = "appointmentDrying"; data = ["appointmentTime": delay]
+        }
+        let _: Envelope<DryerWire.Ignored> = try await client.send("dryer/action", method: "POST", body: DryerWire.ActionRequest(deviceId: value.device.applianceCode, action: action, data: data))
+    }
+
+    private func resolveDryer() async throws -> (device: DryerWire.Device, homeID: String) {
+        if let resolved { return resolved }
         let homes: Envelope<DryerWire.Homes> = try await client.get("dryer/homes")
         for home in homes.data.homeList ?? [] {
             let response: Envelope<DryerWire.Devices> = try await client.get("dryer/devices", query: [.init(name: "homeId", value: home.homegroupId.description)])
             let rooms = (response.data.homeList ?? []).flatMap { $0.roomList ?? [] }
             let devices = rooms.flatMap { $0.applianceList ?? [] }
             if let found = devices.first(where: { $0.type.description.lowercased() == "0xdc" }) {
-                dryer = found
-                return found
+                let value = (device: found, homeID: home.homegroupId.description)
+                resolved = value
+                return value
             }
         }
         throw ProviderError.invalidResponse
@@ -203,6 +232,11 @@ private enum DryerWire {
     struct DeviceHome: Decodable, Sendable { let roomList: [Room]? }
     struct Room: Decodable, Sendable { let applianceList: [Device]? }
     struct Device: Decodable, Sendable { let applianceCode: String; let name: String?; let type: StringOrNumber }
+    struct Capabilities: Decodable, Sendable { let programs: [DryerProgram] }
+    struct ProgramRequest: Encodable, Sendable { let deviceId: String; let programId: Int }
+    struct PowerRequest: Encodable, Sendable { let deviceId: String; let power: Bool }
+    struct ActionRequest: Encodable, Sendable { let deviceId: String; let action: String; let data: [String: Int] }
+    struct Ignored: Decodable, Sendable { init(from decoder: Decoder) throws {} }
     struct Status: Decodable, Sendable {
         let properties: [Property]?
         let data: NestedStatus?
