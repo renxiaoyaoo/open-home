@@ -200,7 +200,7 @@ private struct ProviderModuleView: View {
         case .auto:
             resolved { VehicleView(provider: try factory.vehicleProvider(), registrar: factory.liveActivityRegistrar()) }
         case .lock:
-            ModuleUnavailableView(module: module, message: "Provider 尚未接入")
+            resolved { LockView(provider: try factory.lockProvider()) }
         }
     }
 

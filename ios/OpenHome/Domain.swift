@@ -50,6 +50,31 @@ protocol HomeProvider<Snapshot>: Sendable {
     func snapshot() async throws -> Snapshot
 }
 
+struct LockDevice: Codable, Sendable, Identifiable, Equatable { let id: String; let name: String }
+struct LockDetail: Codable, Sendable, Equatable {
+    let name: String?
+    let wifiName: String?
+    let wifiSignal: String?
+    let battery: String?
+    let cameraBattery: String?
+    let batteryUpdatedAt: String?
+}
+struct LockEvent: Codable, Sendable, Equatable, Identifiable {
+    let time: String
+    let content: String
+    let image: URL?
+    var id: String { "\(time)|\(content)" }
+}
+struct LockPage<Item: Codable & Sendable>: Codable, Sendable { let items: [Item]; let nextCursor: String? }
+struct LockTemporaryPassword: Codable, Sendable, Equatable { let password: String; let expiresAt: Date }
+
+protocol LockProvider: Sendable {
+    func devices() async throws -> [LockDevice]
+    func detail(deviceID: String) async throws -> LockDetail
+    func dynamics(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent>
+    func createTemporaryPassword(deviceID: String) async throws -> LockTemporaryPassword
+}
+
 struct DryerSnapshot: Codable, Sendable, Equatable {
     let deviceID: String
     let name: String

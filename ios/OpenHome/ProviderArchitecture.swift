@@ -4,6 +4,7 @@ protocol ProviderFactory: Sendable {
     func gateProvider() throws -> any GateProvider
     func dryerProvider() throws -> any HomeProvider<DryerSnapshot>
     func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot>
+    func lockProvider() throws -> any LockProvider
     func liveActivityRegistrar() -> (any LiveActivityRegistrar)?
 }
 
@@ -69,6 +70,10 @@ struct RemoteProviderFactory: ProviderFactory {
         RemoteVehicleProvider(client: APIClient(baseURL: baseURL, credential: credential))
     }
 
+    func lockProvider() throws -> any LockProvider {
+        RemoteLockProvider(client: APIClient(baseURL: baseURL, credential: credential))
+    }
+
     func liveActivityRegistrar() -> (any LiveActivityRegistrar)? {
         RemoteLiveActivityRegistrar(client: APIClient(baseURL: baseURL, credential: credential))
     }
@@ -81,6 +86,7 @@ struct DirectProviderFactory: ProviderFactory {
     func gateProvider() throws -> any GateProvider { try registry.gate(session(.gate)) }
     func dryerProvider() throws -> any HomeProvider<DryerSnapshot> { try registry.dryer(session(.living)) }
     func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> { try registry.vehicle(session(.auto)) }
+    func lockProvider() throws -> any LockProvider { try registry.lock(session(.lock)) }
     func liveActivityRegistrar() -> (any LiveActivityRegistrar)? { nil }
 
     private func session(_ provider: ProviderID) throws -> DirectProviderSession {
@@ -95,6 +101,7 @@ struct DirectProviderRegistry: Sendable {
     var gate: @Sendable (DirectProviderSession) throws -> any GateProvider
     var dryer: @Sendable (DirectProviderSession) throws -> any HomeProvider<DryerSnapshot>
     var vehicle: @Sendable (DirectProviderSession) throws -> any HomeProvider<VehicleSnapshot>
+    var lock: @Sendable (DirectProviderSession) throws -> any LockProvider
     var authenticator: @Sendable (ProviderID) throws -> any DirectProviderAuthenticator
 
     static let unconfigured = Self(
@@ -102,6 +109,7 @@ struct DirectProviderRegistry: Sendable {
         gate: { _ in throw ProviderError.notInstalled(.gate) },
         dryer: { _ in throw ProviderError.notInstalled(.living) },
         vehicle: { _ in throw ProviderError.notInstalled(.auto) },
+        lock: { _ in throw ProviderError.notInstalled(.lock) },
         authenticator: { throw ProviderError.notInstalled($0) }
     )
 }
@@ -142,6 +150,7 @@ extension DirectProviderRegistry {
             gate: { _ in DebugGateProvider() },
             dryer: { _ in throw ProviderError.notInstalled(.living) },
             vehicle: { _ in throw ProviderError.notInstalled(.auto) },
+            lock: { _ in throw ProviderError.notInstalled(.lock) },
             authenticator: { provider in guard provider == .gate else { throw ProviderError.notInstalled(provider) }; return DebugDirectAuthenticator() }
         )
     }

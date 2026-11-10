@@ -30,7 +30,12 @@ struct APIClient: Sendable {
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard 200..<300 ~= http.statusCode else {
             let message = (try? JSONDecoder().decode(ErrorEnvelope.self, from: data))?.message
-            if http.statusCode == 401 || http.statusCode == 403 { throw APIError.unauthorized }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                if let message, message.localizedCaseInsensitiveContains("登录") || message.localizedCaseInsensitiveContains("sign") || message.localizedCaseInsensitiveContains("session") {
+                    throw APIError.providerAuthenticationRequired(message)
+                }
+                throw APIError.unauthorized
+            }
             throw APIError.server(status: http.statusCode, message: message)
         }
         return try JSONDecoder.openHome.decode(Response.self, from: data)
@@ -39,12 +44,14 @@ struct APIClient: Sendable {
 
 enum APIError: LocalizedError {
     case unauthorized
+    case providerAuthenticationRequired(String)
     case invalidResponse
     case server(status: Int, message: String?)
 
     var errorDescription: String? {
         switch self {
         case .unauthorized: "OpenHome 连接已失效，请重新连接"
+        case .providerAuthenticationRequired(let message): message
         case .invalidResponse: "OpenHome 返回了无法识别的响应"
         case .server(let status, let message): message ?? "OpenHome 请求失败（\(status)）"
         }
@@ -127,6 +134,28 @@ struct RemoteGateProvider: GateProvider {
     }
     func password(resourceID: String) async throws -> GatePassword {
         let response: Envelope<GatePassword> = try await client.get("doors/\(resourceID)/password")
+        return response.data
+    }
+}
+
+struct RemoteLockProvider: LockProvider {
+    let client: APIClient
+    func devices() async throws -> [LockDevice] {
+        let response: Envelope<[LockDevice]> = try await client.get("lock/devices")
+        return response.data
+    }
+    func detail(deviceID: String) async throws -> LockDetail {
+        let response: Envelope<LockDetail> = try await client.get("lock/detail", query: [.init(name: "lockId", value: deviceID)])
+        return response.data
+    }
+    func dynamics(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent> {
+        var query = [URLQueryItem(name: "lockId", value: deviceID)]
+        if let cursor { query.append(.init(name: "cursor", value: cursor)) }
+        let response: Envelope<LockPage<LockEvent>> = try await client.get("lock/lock-dynamics", query: query)
+        return response.data
+    }
+    func createTemporaryPassword(deviceID: String) async throws -> LockTemporaryPassword {
+        let response: Envelope<LockTemporaryPassword> = try await client.request("lock/temporary-password-create", method: "POST", query: [.init(name: "lockId", value: deviceID)])
         return response.data
     }
 }
