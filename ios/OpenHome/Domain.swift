@@ -102,6 +102,28 @@ struct LockEvent: Codable, Sendable, Equatable, Identifiable {
     let image: URL?
     var id: String { "\(time)|\(content)" }
 }
+struct LockCapture: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let time: String
+    let type: String?
+    let image: URL
+    let video: URL?
+
+    private enum CodingKeys: String, CodingKey { case id, time, type, image, video }
+    init(id: String, time: String, type: String?, image: URL, video: URL?) {
+        self.id = id; self.time = time; self.type = type; self.image = image; self.video = video
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        type = try values.decodeIfPresent(String.self, forKey: .type)
+        image = try values.decode(URL.self, forKey: .image)
+        video = try values.decodeIfPresent(URL.self, forKey: .video)
+        if let text = try? values.decode(String.self, forKey: .time) { time = text }
+        else if let number = try? values.decode(Double.self, forKey: .time) { time = String(number) }
+        else { time = "" }
+    }
+}
 struct LockPage<Item: Codable & Sendable>: Codable, Sendable { let items: [Item]; let nextCursor: String? }
 struct LockTemporaryPassword: Codable, Sendable, Equatable { let password: String; let expiresAt: Date }
 
@@ -109,6 +131,9 @@ protocol LockProvider: Sendable {
     func devices() async throws -> [LockDevice]
     func detail(deviceID: String) async throws -> LockDetail
     func dynamics(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent>
+    func securityLogs(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent>
+    func operationLogs(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent>
+    func captures(deviceID: String, cursor: String?) async throws -> LockPage<LockCapture>
     func createTemporaryPassword(deviceID: String) async throws -> LockTemporaryPassword
 }
 

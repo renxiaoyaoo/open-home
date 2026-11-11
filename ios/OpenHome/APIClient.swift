@@ -153,13 +153,28 @@ struct RemoteLockProvider: LockProvider {
         return response.data
     }
     func dynamics(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent> {
+        try await eventPage("lock/lock-dynamics", deviceID: deviceID, cursor: cursor)
+    }
+    func securityLogs(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent> {
+        try await eventPage("lock/security-logs", deviceID: deviceID, cursor: cursor)
+    }
+    func operationLogs(deviceID: String, cursor: String?) async throws -> LockPage<LockEvent> {
+        try await eventPage("lock/operation-logs", deviceID: deviceID, cursor: cursor)
+    }
+    func captures(deviceID: String, cursor: String?) async throws -> LockPage<LockCapture> {
         var query = [URLQueryItem(name: "lockId", value: deviceID)]
         if let cursor { query.append(.init(name: "cursor", value: cursor)) }
-        let response: Envelope<LockPage<LockEvent>> = try await client.get("lock/lock-dynamics", query: query)
+        let response: Envelope<LockPage<LockCapture>> = try await client.get("lock/captures", query: query)
         return response.data
     }
     func createTemporaryPassword(deviceID: String) async throws -> LockTemporaryPassword {
         let response: Envelope<LockTemporaryPassword> = try await client.request("lock/temporary-password-create", method: "POST", query: [.init(name: "lockId", value: deviceID)])
+        return response.data
+    }
+    private func eventPage(_ path: String, deviceID: String, cursor: String?) async throws -> LockPage<LockEvent> {
+        var query = [URLQueryItem(name: "lockId", value: deviceID)]
+        if let cursor { query.append(.init(name: "cursor", value: cursor)) }
+        let response: Envelope<LockPage<LockEvent>> = try await client.get(path, query: query)
         return response.data
     }
 }
