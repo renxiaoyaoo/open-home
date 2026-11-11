@@ -3,7 +3,7 @@ import Foundation
 protocol ProviderFactory: Sendable {
     func gateProvider() throws -> any GateProvider
     func dryerProvider() throws -> any DryerProvider
-    func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot>
+    func vehicleProvider() throws -> any VehicleProvider
     func lockProvider() throws -> any LockProvider
     func liveActivityRegistrar() -> (any LiveActivityRegistrar)?
 }
@@ -66,7 +66,7 @@ struct RemoteProviderFactory: ProviderFactory {
         RemoteDryerProvider(client: APIClient(baseURL: baseURL, credential: credential))
     }
 
-    func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> {
+    func vehicleProvider() throws -> any VehicleProvider {
         RemoteVehicleProvider(client: APIClient(baseURL: baseURL, credential: credential))
     }
 
@@ -85,7 +85,7 @@ struct DirectProviderFactory: ProviderFactory {
 
     func gateProvider() throws -> any GateProvider { try registry.gate(session(.gate)) }
     func dryerProvider() throws -> any DryerProvider { try registry.dryer(session(.living)) }
-    func vehicleProvider() throws -> any HomeProvider<VehicleSnapshot> { try registry.vehicle(session(.auto)) }
+    func vehicleProvider() throws -> any VehicleProvider { try registry.vehicle(session(.auto)) }
     func lockProvider() throws -> any LockProvider { try registry.lock(session(.lock)) }
     func liveActivityRegistrar() -> (any LiveActivityRegistrar)? { nil }
 
@@ -100,7 +100,7 @@ struct DirectProviderRegistry: Sendable {
     let installed: Set<ProviderID>
     var gate: @Sendable (DirectProviderSession) throws -> any GateProvider
     var dryer: @Sendable (DirectProviderSession) throws -> any DryerProvider
-    var vehicle: @Sendable (DirectProviderSession) throws -> any HomeProvider<VehicleSnapshot>
+    var vehicle: @Sendable (DirectProviderSession) throws -> any VehicleProvider
     var lock: @Sendable (DirectProviderSession) throws -> any LockProvider
     var authenticator: @Sendable (ProviderID) throws -> any DirectProviderAuthenticator
 

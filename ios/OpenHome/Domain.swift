@@ -160,11 +160,51 @@ struct VehicleSnapshot: Codable, Sendable, Equatable {
     let electricRangeKM: Double?
     let fuelRangeKM: Double?
     let odometerKM: Double?
+    let evMileageKM: Double?
+    let hevMileageKM: Double?
     let cabinTemperatureC: Double?
     let locationName: String?
+    let signalStrength: Int?
+    let online: Bool?
+    let securityState: String?
+    let driveMode: String?
+    let okIndicator: Bool?
+    let powerOutputKW: Double?
+    let engineCoolantC: Double?
+    let health: [String: String]?
+    let doorsOpen: VehicleCornerState?
+    let doorsUnlocked: VehicleCornerState?
+    let windowsOpen: VehicleCornerState?
+    let hoodOpen: Bool?
+    let trunkOpen: Bool?
+    let skylightOpen: Bool?
+    let tirePressureKPA: VehicleTirePressure?
     let chargingPowerKW: Double?
     let remainingChargeMinutes: Int?
     let updatedAt: Date?
 
     enum State: String, Codable, Sendable { case parked, ready, driving, charging, fault }
 }
+
+struct VehicleCornerState: Codable, Sendable, Equatable { let frontLeft: Bool?; let frontRight: Bool?; let rearLeft: Bool?; let rearRight: Bool? }
+struct VehicleTirePressure: Codable, Sendable, Equatable { let frontLeft: Double?; let frontRight: Double?; let rearLeft: Double?; let rearRight: Double? }
+struct VehicleEnergyBreakdown: Codable, Sendable, Equatable { let propulsionPercent: Double?; let climatePercent: Double?; let electricalPercent: Double?; let otherPercent: Double? }
+struct VehicleEnergyTrendPoint: Codable, Sendable, Equatable, Identifiable {
+    let date: String
+    let equivalentFuelLitresPer100Km: Double?
+    let electricityKwhPer100Km: Double?
+    let fuelLitresPer100Km: Double?
+    let peerAverageLitresPer100Km: Double?
+    var id: String { date }
+}
+struct VehicleEnergy: Codable, Sendable, Equatable {
+    let rankPercent: Double?; let cumulativeRankPercent: Double?; let recentDistanceKm: Double?
+    let equivalentFuelLitresPer100Km: Double?; let electricityKwhPer100Km: Double?; let fuelLitresPer100Km: Double?
+    let electricityKwh: Double?; let fuelLitres: Double?; let costYuan: Double?; let breakdown: VehicleEnergyBreakdown?
+    let recentTrend: [VehicleEnergyTrendPoint]
+    let totalDistanceKm: Double?; let cumulativeEquivalentFuelLitresPer100Km: Double?
+    let cumulativeElectricityKwhPer100Km: Double?; let cumulativeFuelLitresPer100Km: Double?; let costPerKmYuan: Double?
+    let updatedAt: String?
+}
+struct VehicleDetailSnapshot: Sendable, Equatable { let summary: VehicleSnapshot; let energy: VehicleEnergy }
+protocol VehicleProvider: HomeProvider where Snapshot == VehicleSnapshot { func detail() async throws -> VehicleDetailSnapshot }
