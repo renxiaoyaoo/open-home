@@ -5,6 +5,7 @@ struct RootView: View {
     @State private var confirmingDirectLogout = false
     @State private var confirmingDisconnect = false
     @State private var showingModules = false
+    @State private var showingAccounts = false
 
     var body: some View {
         @Bindable var model = model
@@ -50,6 +51,11 @@ struct RootView: View {
         } message: { Text("此设备的连接凭据将被移除") }
         .task(id: model.connection?.deviceCredentialID) { await model.validateCenter() }
         .sheet(isPresented: $showingModules) { ModuleManagementView() }
+        .sheet(isPresented: $showingAccounts) {
+            if let connection = model.connection, connection.mode == .center, let baseURL = connection.centerURL {
+                CenterAccountManagementView(client: CenterAccountClient(client: APIClient(baseURL: baseURL, credential: { try ConnectionStore().centerToken() })), providers: connection.enabledProviders)
+            }
+        }
     }
 
     @ViewBuilder private func connectedContent(_ module: AppModel.Module) -> some View {
@@ -74,6 +80,8 @@ struct RootView: View {
                 }
                 if model.connection?.mode == .direct {
                     Button("退出当前账号", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmingDirectLogout = true }
+                } else {
+                    Button("账号管理", systemImage: "person.crop.circle") { showingAccounts = true }
                 }
                 Button("管理模块", systemImage: "square.grid.2x2") { showingModules = true }
                 Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") {
