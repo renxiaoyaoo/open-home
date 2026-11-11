@@ -41,6 +41,7 @@ struct OperationResult: Codable, Sendable, Equatable {
 
 protocol GateProvider: Sendable {
     func resources() async throws -> [GateResource]
+    func setSelected(resourceID: String, selected: Bool) async throws
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult
     func password(resourceID: String) async throws -> GatePassword
 }

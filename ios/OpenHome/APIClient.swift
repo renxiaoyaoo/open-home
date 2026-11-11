@@ -125,9 +125,13 @@ struct RemoteLiveActivityRegistrar: LiveActivityRegistrar {
 
 struct RemoteGateProvider: GateProvider {
     let client: APIClient
+    private struct Selection: Decodable, Sendable { let selected: Bool }
     func resources() async throws -> [GateResource] {
         let response: Envelope<[GateResource]> = try await client.get("doors")
         return response.data
+    }
+    func setSelected(resourceID: String, selected: Bool) async throws {
+        let _: Envelope<Selection> = try await client.send("doors/\(resourceID)", method: "PATCH", body: ["selected": selected])
     }
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult {
         try await client.request("doors/\(resourceID)/open", method: "POST", headers: ["Idempotency-Key": idempotencyKey])

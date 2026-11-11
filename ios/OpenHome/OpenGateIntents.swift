@@ -4,6 +4,7 @@ import Foundation
 struct OpenGateOptionsProvider: DynamicOptionsProvider {
     func results() async throws -> IntentItemCollection<String> {
         let items = try await OpenHomeIntentEnvironment.gateProvider().resources()
+            .filter(\.selected)
             .sorted { ($0.selected ? 0 : 1, $0.name) < ($1.selected ? 0 : 1, $1.name) }
             .map { gate in
                 IntentItem(

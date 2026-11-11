@@ -8,8 +8,8 @@
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
 <key>CFBundlePackageType</key><string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-<key>CFBundleShortVersionString</key><string>1.0</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 <key>OpenHomeKeychainAccessGroup</key><string>$(AppIdentifierPrefix)org.openhome.shared</string>
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSSupportsLiveActivitiesFrequentUpdates</key><true/>
