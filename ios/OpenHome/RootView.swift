@@ -33,7 +33,12 @@ struct RootView: View {
                         }
                     }
                     .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) { connectionMenu }
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if model.connection?.mode == .center {
+                                Button("账号管理", systemImage: "person.crop.circle") { showingAccounts = true }
+                            }
+                            connectionMenu
+                        }
                     }
                 }
             }
@@ -80,8 +85,6 @@ struct RootView: View {
                 }
                 if model.connection?.mode == .direct {
                     Button("退出当前账号", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmingDirectLogout = true }
-                } else {
-                    Button("账号管理", systemImage: "person.crop.circle") { showingAccounts = true }
                 }
                 Button("管理模块", systemImage: "square.grid.2x2") { showingModules = true }
                 Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") {
