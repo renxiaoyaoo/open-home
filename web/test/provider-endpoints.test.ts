@@ -94,6 +94,22 @@ test("refreshes an appliance session when the provider rejects the token passwor
   assert.equal(calls.length, 3);
 });
 
+test("refreshes an appliance session before an absolute access-token expiry", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input); calls.push(url);
+    if (url.endsWith("/account/refresh")) return Response.json({ code: 0, data: { accessToken: "fresh-token", expired: Math.floor(Date.now() / 1000) + 3600 } });
+    return Response.json({ code: 0, data: { homeList: [] } });
+  }) as typeof fetch;
+  const session = { uid: "user", accessToken: "old-token", deviceId: "client", tokenPwd: "refresh-secret", accessTokenExpiresAt: Math.floor(Date.now() / 1000) + 30 };
+  try { assert.deepEqual(await new OpenDeviceProvider(session).listHomes(), { homeList: [] }); } finally { globalThis.fetch = originalFetch; }
+  assert.equal(calls.length, 2);
+  assert.match(calls[0], /\/account\/refresh$/);
+  assert.match(calls[1], /\/homes$/);
+  assert.equal(session.accessToken, "fresh-token");
+});
+
 test("coalesces concurrent appliance token refreshes without serializing normal reads", async () => {
   const originalFetch = globalThis.fetch;
   let refreshes = 0;

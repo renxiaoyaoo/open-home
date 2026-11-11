@@ -19,9 +19,15 @@ final class LiveStatusManager {
         return activity.id
     }
 
-    func update(activityID: String, state: OpenHomeStatusAttributes.ContentState) async {
-        guard let activity = Activity<OpenHomeStatusAttributes>.activities.first(where: { $0.id == activityID }) else { return }
+    @discardableResult
+    func update(activityID: String, state: OpenHomeStatusAttributes.ContentState) async -> Bool {
+        guard let activity = Activity<OpenHomeStatusAttributes>.activities.first(where: { $0.id == activityID }) else {
+            tokenTasks.removeValue(forKey: activityID)?.cancel()
+            return false
+        }
         await activity.update(.init(state: state, staleDate: state.expectedEnd))
+        observePushToken(for: activity)
+        return true
     }
 
     func end(activityID: String, state: OpenHomeStatusAttributes.ContentState) async {

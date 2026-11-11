@@ -24,6 +24,7 @@ export class OpenDeviceProvider {
   constructor(session?: OpenDeviceSession, refreshCoordinator?: OpenDeviceRefreshCoordinator) { this.session = session; this.refreshCoordinator = refreshCoordinator; this.deviceId = session?.deviceId || this.config.credentials.deviceId; this.uid = session?.uid; this.accessToken = session?.accessToken; }
   private general(extra: Record<string, unknown> = {}) { const client = this.config.client; return { src: this.appId, format: "2", stamp: stamp(), platformId: client.platformId, deviceId: this.deviceId, reqId: randomBytes(16).toString("hex"), uid: this.uid, clientType: client.clientType, appId: this.appId, language: client.language, ...extra }; }
   private async request(alias: string, options: { method?: string; data?: unknown; query?: string; headers?: Record<string, string>; refresh?: boolean; authenticated?: boolean } = {}): Promise<unknown> {
+    if (options.authenticated !== false && options.refresh !== false && this.accessTokenNeedsRefresh() && this.session?.tokenPwd) await this.refreshAccessToken();
     const method = options.method || "POST"; const body = options.data === undefined ? "" : JSON.stringify(options.data); const nonce = String(Math.floor(Date.now() / 1000));
     const headers: Record<string, string> = { "content-type": "application/json; charset=utf-8", version: this.config.client.version, secretVersion: this.config.client.secretVersion, random: nonce, sign: createHmac("sha256", this.hmacKey).update(`${this.iotKey}${body}${nonce}`).digest("hex"), ...options.headers };
     if (options.authenticated !== false) { if (this.uid) headers.uid = this.uid; if (this.accessToken) headers.accessToken = this.accessToken; }
@@ -37,6 +38,12 @@ export class OpenDeviceProvider {
       throw new Error(`OpenLiving provider: ${payload.code ?? response.status} ${payload.msg || "request failed"}`);
     }
     return payload.data;
+  }
+  private accessTokenNeedsRefresh(now = Date.now()) {
+    const raw = Number(this.session?.accessTokenExpiresAt);
+    if (!Number.isFinite(raw)) return false;
+    const expiresAt = raw >= 1_000_000_000_000 ? raw : raw >= 1_000_000_000 ? raw * 1000 : Number.POSITIVE_INFINITY;
+    return expiresAt <= now + 60_000;
   }
   private async refreshAccessToken() {
     if (!this.uid || !this.session?.tokenPwd) throw new Error("OpenLiving session cannot be refreshed");

@@ -22,7 +22,7 @@ import SwiftUI
         let end = value.remainingChargeMinutes.map { Date().addingTimeInterval(TimeInterval($0 * 60)) }
         let detail = value.state == .charging ? value.batteryPercent.map { "电量 \(Int($0))%" } : value.speedKPH.map { "时速 \(Int($0)) km/h" }
         let state = OpenHomeStatusAttributes.ContentState(title: value.name, state: value.state.label, detail: detail, progress: value.state == .charging ? value.batteryPercent.map { $0 / 100 } : nil, expectedEnd: end)
-        if active, let activityID { await liveStatus.update(activityID: activityID, state: state) }
+        if active, let activityID, await liveStatus.update(activityID: activityID, state: state) { return }
         else if active { activityID = try? await liveStatus.start(attributes: .init(provider: .auto, resourceID: value.vehicleID, resourceName: value.name), state: state) }
         else if let activityID { await liveStatus.end(activityID: activityID, state: state); self.activityID = nil }
     }

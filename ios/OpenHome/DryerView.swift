@@ -81,7 +81,7 @@ final class DryerViewModel {
     private func updateLiveStatus(_ value: DryerSnapshot) async {
         let active = value.state == .running || value.state == .scheduled || value.state == .paused
         let state = OpenHomeStatusAttributes.ContentState(title: value.name, state: value.state.label, detail: value.programName, progress: nil, expectedEnd: value.expectedFinish)
-        if active, let activityID { await liveStatus.update(activityID: activityID, state: state) }
+        if active, let activityID, await liveStatus.update(activityID: activityID, state: state) { return }
         else if active { activityID = try? await liveStatus.start(attributes: .init(provider: .living, resourceID: value.deviceID, resourceName: value.name), state: state) }
         else if let activityID { await liveStatus.end(activityID: activityID, state: state); self.activityID = nil }
     }
