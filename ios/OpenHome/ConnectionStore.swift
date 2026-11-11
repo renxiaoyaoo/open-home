@@ -2,9 +2,19 @@ import Foundation
 
 struct ConnectionStore {
     private let keychain = KeychainStore()
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let configurationKey = "openhome.connection"
     private let tokenAccount = "center.device-token"
+
+    init() {
+        let shared = UserDefaults(suiteName: "group.org.openhome.app") ?? .standard
+        if shared.data(forKey: configurationKey) == nil,
+           let legacy = UserDefaults.standard.data(forKey: configurationKey) {
+            shared.set(legacy, forKey: configurationKey)
+            UserDefaults.standard.removeObject(forKey: configurationKey)
+        }
+        defaults = shared
+    }
 
     func saveCenter(_ result: ActivationClient.Result) throws -> ConnectionConfiguration {
         try keychain.save(Data(result.deviceToken.utf8), account: tokenAccount)
