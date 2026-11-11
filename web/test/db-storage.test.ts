@@ -60,6 +60,8 @@ test("consumes a self-contained activation once and authenticates the issued dev
   assert.equal(deliveries, 1);
   await unregisterLiveActivity(device.deviceID, "activity-2");
   assert.deepEqual(await liveActivityTargets("living", "dryer-1"), []);
+  const { refreshLiveActivities } = await import("../lib/live-activity-refresh.ts");
+  assert.deepEqual(await refreshLiveActivities(), []);
   await revokeDevice(device.deviceID);
   await assert.rejects(() => authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } })), /authorization failed/);
   await assert.rejects(() => activateClient(payload.code, "Second iPhone"), /invalid or expired/);
