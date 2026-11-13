@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 const keySource = process.env.OPENHOME_SESSION_ENCRYPTION_KEY || "";
 const key = /^[0-9a-f]{64}$/i.test(keySource) ? Buffer.from(keySource, "hex") : Buffer.from(keySource, "base64");
 if (key.length !== 32) throw new Error("Set OPENHOME_SESSION_ENCRYPTION_KEY to the deployment's recoverable key");
-const publicAPIURL = new URL(process.env.OPENHOME_PUBLIC_API_URL || "");
+const publicAPIURL = new URL(process.env.OPENHOME_PUBLIC_API_URL || (process.env.OPENHOME_CF_API_DOMAIN ? `https://${process.env.OPENHOME_CF_API_DOMAIN}/api/v1/` : ""));
 if (publicAPIURL.protocol !== "https:" && !(publicAPIURL.protocol === "http:" && ["localhost", "127.0.0.1"].includes(publicAPIURL.hostname))) throw new Error("OPENHOME_PUBLIC_API_URL must use HTTPS");
 const administratorToken = createHmac("sha256", key).update("admin:activation-issuer").digest("hex");
 const response = await fetch(new URL("client/activation-codes", `${publicAPIURL.toString().replace(/\/$/, "")}/`), {

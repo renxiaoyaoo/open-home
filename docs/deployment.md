@@ -19,8 +19,9 @@ set the header named by `OPENHOME_BROWSER_IDENTITY_HEADER`. Native clients use a
 second, non-interactive API hostname routed to the same application and database;
 its application routes validate revocable OpenHome device bearer tokens. Create
 a ten-minute single-use activation package with `npm run activation:create`.
-Set `OPENHOME_PUBLIC_API_URL` to that API hostname's `/api/v1/` base for activation
-and scheduled refresh commands; never point a native activation package at the
+The Cloudflare adapter derives the `/api/v1/` base from `OPENHOME_CF_API_DOMAIN`;
+other adapters set `OPENHOME_PUBLIC_API_URL` explicitly for activation and
+scheduled refresh commands. Never point a native activation package at the
 identity-protected Web hostname.
 The command derives its administrator proof from the recoverable session key,
 so no additional long-lived secret is required or printed.
