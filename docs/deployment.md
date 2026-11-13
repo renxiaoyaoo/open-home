@@ -10,7 +10,7 @@ Build from `deploy/docker/Dockerfile`, mount `/app/web/data`, and pass configura
 
 ## Cloudflare Workers and D1
 
-The Cloudflare adapter is optional. Set `OPENHOME_CF_DATABASE_ID` and optionally `OPENHOME_CF_DATABASE_NAME`, `OPENHOME_CF_CUSTOM_DOMAIN`, and `OPENHOME_ACCESS_ENABLED=1` in the private deployment environment, configure Worker secrets, then run `npm run cf:deploy` from `web`. The generated `web/wrangler.production.jsonc` is ignored. No account ID, database UUID, custom domain, or secret belongs in this repository.
+The Cloudflare adapter is optional. Set `OPENHOME_CF_DATABASE_ID` and optionally `OPENHOME_CF_DATABASE_NAME`, `OPENHOME_CF_CUSTOM_DOMAIN`, `OPENHOME_CF_API_DOMAIN`, and `OPENHOME_ACCESS_ENABLED=1` in the private deployment environment, configure Worker secrets, then run `npm run cf:deploy` from `web`. The generated `web/wrangler.production.jsonc` is ignored. No account ID, database UUID, custom domain, or secret belongs in this repository.
 
 Cloudflare refreshes registered Live Activities once per minute. On Node, run `npm run live-activities:refresh` from any scheduler at the same cadence; both adapters execute the same transport-neutral refresh use case.
 
@@ -19,6 +19,9 @@ set the header named by `OPENHOME_BROWSER_IDENTITY_HEADER`. Native clients use a
 second, non-interactive API hostname routed to the same application and database;
 its application routes validate revocable OpenHome device bearer tokens. Create
 a ten-minute single-use activation package with `npm run activation:create`.
+Set `OPENHOME_PUBLIC_API_URL` to that API hostname's `/api/v1/` base for activation
+and scheduled refresh commands; never point a native activation package at the
+identity-protected Web hostname.
 The command derives its administrator proof from the recoverable session key,
 so no additional long-lived secret is required or printed.
 
