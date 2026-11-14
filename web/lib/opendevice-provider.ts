@@ -83,6 +83,7 @@ export class OpenDeviceProvider {
       tokenPwdExpiresAt: Number.isFinite(Number(tokenInfo?.expiredDate)) ? Number(tokenInfo?.expiredDate) : this.session.tokenPwdExpiresAt,
     };
   }
+  refreshSession() { return this.performAccessTokenRefresh(); }
   requestSms(mobile: string) { return this.request(deviceRoute("sms"), { data: { data: { deviceId: this.deviceId }, iotData: { type: 9, mobile, iotAppId: this.appId }, timestamp: stamp() } }); }
   async smsLogin(mobile: string, smsCode: string) {
     const result = await this.request(deviceRoute("login"), { data: { data: { appKey: this.appKey, appVersion: this.config.client.version, deviceId: this.deviceId, deviceName: "OpenHome", osVersion: "Cloudflare", platform: 2 }, iotData: { mobile, smsCode, iotAppId: this.appId, appVersion: this.config.client.version, deviceId: this.deviceId, loginType: 0 }, timestamp: stamp() } }) as { iotUserId?: string; userInfo?: { uid?: string; userId?: string; nickName?: string; nickname?: string; name?: string }; mdata?: { accessToken?: string; expired?: number; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number }; userInfo?: { uid?: string; nickName?: string; nickname?: string } }; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number } };

@@ -15,8 +15,17 @@ function clearLegacy(response: Response) { response.headers.append("set-cookie",
 
 export async function readDryerStatus(deviceId: string, accountId?: string) {
   const stored = await loadProviderSession<OpenDeviceSession>("opendevice", accountId);
-  const client = new OpenDeviceProvider(stored.session, (staleAccessToken, refresh) => refreshProviderSession("opendevice", stored.accountId, staleAccessToken, async () => ({ ...stored.session, ...await refresh() })));
+  const client = openDeviceClient(stored.accountId, stored.session);
   return await client.status(id(deviceId, "设备"));
+}
+
+function openDeviceClient(accountId: string, session: OpenDeviceSession) {
+  return new OpenDeviceProvider(session, (staleAccessToken) => refreshProviderSession<OpenDeviceSession>(
+    "opendevice",
+    accountId,
+    staleAccessToken,
+    async (latest) => ({ ...latest, ...await new OpenDeviceProvider(latest).refreshSession() }),
+  ));
 }
 
 export async function callDryerAdapter(operation: DryerOperation, request: Request) {
@@ -28,7 +37,7 @@ export async function callDryerAdapter(operation: DryerOperation, request: Reque
   if (operation === "logout") { await removeProviderAccount("opendevice", String(body.accountId || "") || undefined); return clearLegacy(Response.json({ ok: true })); }
   const stored = await storedSession(request, url.searchParams.get("accountId") || undefined);
   if (operation === "profile") return stored.migrated ? clearLegacy(Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenLiving 账号" } })) : Response.json({ ok: true, data: { accountId: stored.accountId, displayName: stored.session.displayName || "OpenLiving 账号" } });
-  const client = new OpenDeviceProvider(stored.session, (staleAccessToken, refresh) => refreshProviderSession("opendevice", stored.accountId, staleAccessToken, async () => ({ ...stored.session, ...await refresh() }))); let data: unknown;
+  const client = openDeviceClient(stored.accountId, stored.session); let data: unknown;
   if (operation === "homes") data = await client.listHomes();
   else if (operation === "devices") data = await client.listDevices(id(url.searchParams.get("homeId"), "家庭"));
   else if (operation === "capabilities") data = await client.capabilities(id(url.searchParams.get("homeId"), "家庭"), id(url.searchParams.get("deviceId"), "设备"));

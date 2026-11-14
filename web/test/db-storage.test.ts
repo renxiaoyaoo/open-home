@@ -11,7 +11,7 @@ test("center storage contains provider sessions and client device identities", a
   process.env.OPENHOME_SESSION_ENCRYPTION_KEY = "11".repeat(32);
   try {
     const { getDb } = await import("../db/index.ts");
-    const { loadProviderSession, publicAccounts, refreshProviderSession, saveProviderSession } = await import("../lib/central.ts");
+    const { loadProviderSession, persistProviderSession, publicAccounts, refreshProviderSession, saveProviderSession } = await import("../lib/central.ts");
     const db = await getDb();
     const rows = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all<{ name: string }>();
     assert.deepEqual(rows.results.map((row) => row.name), ["accounts", "activation_codes", "client_devices", "live_activities", "provider_leases", "sessions"]);
@@ -28,6 +28,15 @@ test("center storage contains provider sessions and client device identities", a
     ]);
     assert.equal(refreshes, 1);
     assert.deepEqual(sessions, [{ accessToken: "fresh-token" }, { accessToken: "fresh-token" }]);
+
+    await persistProviderSession("opendevice", "od-test", { accessToken: "latest-token", tokenPwd: "rotated-secret" });
+    const refreshed = await refreshProviderSession(
+      "opendevice",
+      "od-test",
+      "latest-token",
+      async (latest) => ({ ...latest, accessToken: `${latest.tokenPwd}-access` }),
+    );
+    assert.deepEqual(refreshed, { accessToken: "rotated-secret-access", tokenPwd: "rotated-secret" });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

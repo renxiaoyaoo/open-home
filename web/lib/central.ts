@@ -29,7 +29,7 @@ export async function saveCentralSession(accountId: string, mobile: string, disp
 export async function loadProviderSession<T>(provider: ProviderId, accountId?: string) { const db = await getDb(); const row = accountId ? await db.prepare("SELECT s.encrypted_state AS encryptedState,a.id AS accountId FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE a.id=? AND a.provider=? AND a.status='active'").bind(accountId, provider).first<{ encryptedState: string; accountId: string }>() : await db.prepare("SELECT s.encrypted_state AS encryptedState,a.id AS accountId FROM sessions s JOIN accounts a ON a.id=s.account_id WHERE a.provider=? AND a.status='active' ORDER BY a.updated_at DESC LIMIT 1").bind(provider).first<{ encryptedState: string; accountId: string }>(); if (!row) throw new Error("Account is not signed in"); return { accountId: row.accountId, session: openSession<T>(row.encryptedState) }; }
 export async function loadCentralSession(accountId: string) { return (await loadProviderSession<CentralSession>("opengate", accountId)).session; }
 export async function persistProviderSession<T>(provider: ProviderId, accountId: string, session: T) { const result = await (await getDb()).prepare("UPDATE sessions SET encrypted_state=?,updated_at=? WHERE account_id=? AND EXISTS (SELECT 1 FROM accounts WHERE id=? AND provider=?)").bind(sealSession(session), Date.now(), accountId, accountId, provider).run(); return result; }
-export async function refreshProviderSession<T extends { accessToken?: string }>(provider: ProviderId, accountId: string, staleAccessToken: string | undefined, refresh: () => Promise<T>) {
+export async function refreshProviderSession<T extends { accessToken?: string }>(provider: ProviderId, accountId: string, staleAccessToken: string | undefined, refresh: (latest: T) => Promise<T>) {
   const db = await getDb(); const owner = randomUUID(); const deadline = Date.now() + 15_000;
   while (true) {
     const now = Date.now();
@@ -42,7 +42,10 @@ export async function refreshProviderSession<T extends { accessToken?: string }>
   try {
     const latest = await loadProviderSession<T>(provider, accountId);
     if (latest.session.accessToken && latest.session.accessToken !== staleAccessToken) return latest.session;
-    const updated = await refresh();
+    // Refresh credentials may rotate. Always refresh from the session loaded
+    // after acquiring the cross-instance lease, never from the request's
+    // potentially stale in-memory copy.
+    const updated = await refresh(latest.session);
     await persistProviderSession(provider, accountId, updated);
     return updated;
   } finally { await db.prepare("DELETE FROM provider_leases WHERE account_id=? AND owner=?").bind(accountId, owner).run(); }
