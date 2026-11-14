@@ -57,6 +57,15 @@ test("maps only model-verified dryer parameters into one property update", async
   assert.throws(() => new OpenDeviceProvider().configureProgram("dryer", 43, { dry_level: 99 }));
 });
 
+test("persists the provider IoT user identity required for token refresh", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({ code: 0, data: { iotUserId: "iot-user", userInfo: { uid: "profile-user", nickName: "Home" }, mdata: { accessToken: "access", tokenPwdInfo: { tokenPwd: "refresh" } } } })) as typeof fetch;
+  try {
+    const session = await new OpenDeviceProvider().smsLogin("13800138000", "123456");
+    assert.equal(session.uid, "iot-user");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("refreshes an expired appliance session and retries the original request once", async () => {
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];

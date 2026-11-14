@@ -87,7 +87,7 @@ export class OpenDeviceProvider {
   requestSms(mobile: string) { return this.request(deviceRoute("sms"), { data: { data: { deviceId: this.deviceId }, iotData: { type: 9, mobile, iotAppId: this.appId }, timestamp: stamp() } }); }
   async smsLogin(mobile: string, smsCode: string) {
     const result = await this.request(deviceRoute("login"), { data: { data: { appKey: this.appKey, appVersion: this.config.client.version, deviceId: this.deviceId, deviceName: "OpenHome", osVersion: "Cloudflare", platform: 2 }, iotData: { mobile, smsCode, iotAppId: this.appId, appVersion: this.config.client.version, deviceId: this.deviceId, loginType: 0 }, timestamp: stamp() } }) as { iotUserId?: string; userInfo?: { uid?: string; userId?: string; nickName?: string; nickname?: string; name?: string }; mdata?: { accessToken?: string; expired?: number; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number }; userInfo?: { uid?: string; nickName?: string; nickname?: string } }; tokenPwdInfo?: { tokenPwd?: string; expiredDate?: number } };
-    const uid = result.userInfo?.uid || result.userInfo?.userId || result.iotUserId || result.mdata?.userInfo?.uid; const accessToken = result.mdata?.accessToken;
+    const uid = result.iotUserId || result.userInfo?.uid || result.userInfo?.userId || result.mdata?.userInfo?.uid; const accessToken = result.mdata?.accessToken;
     const displayName = result.userInfo?.nickName || result.userInfo?.nickname || result.userInfo?.name || result.mdata?.userInfo?.nickName || result.mdata?.userInfo?.nickname || `${mobile.slice(0, 3)}****${mobile.slice(-4)}`;
     const tokenInfo = result.mdata?.tokenPwdInfo || result.tokenPwdInfo;
     if (!uid || !accessToken) throw new Error("OpenLiving login response did not contain a session");
