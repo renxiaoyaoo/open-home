@@ -7,6 +7,7 @@ struct RootView: View {
     @State private var confirmingDisconnect = false
     @State private var showingModules = false
     @State private var showingAccounts = false
+    @State private var activationError: String?
 
     var body: some View {
         @Bindable var model = model
@@ -56,11 +57,38 @@ struct RootView: View {
             Button("取消", role: .cancel) {}
         } message: { Text("此设备的连接凭据将被移除") }
         .task(id: model.connection?.deviceCredentialID) { await model.validateCenter() }
+        .onOpenURL { url in Task { await activate(url) } }
+        .alert("无法连接 OpenHome", isPresented: Binding(get: { activationError != nil }, set: { if !$0 { activationError = nil } })) {
+            Button("好") { activationError = nil }
+        } message: {
+            Text(activationError ?? "激活失败")
+        }
         .sheet(isPresented: $showingModules) { ModuleManagementView() }
         .sheet(isPresented: $showingAccounts) {
             if let connection = model.connection, connection.mode == .center, let baseURL = connection.centerURL {
                 CenterAccountManagementView(client: CenterAccountClient(client: APIClient(baseURL: baseURL, credential: { try ConnectionStore().centerToken() })), providers: connection.enabledProviders)
             }
+        }
+    }
+
+    @MainActor
+    private func activate(_ url: URL) async {
+        guard let values = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              url.scheme == "openhome", url.host == "activate",
+              let address = values.queryItems?.first(where: { $0.name == "server" })?.value,
+              let code = values.queryItems?.first(where: { $0.name == "code" })?.value,
+              let baseURL = URL(string: address) else {
+            activationError = "无法识别激活链接"
+            return
+        }
+        do {
+            let result = try await ActivationClient().activate(baseURL: baseURL, code: code, deviceName: "iPhone")
+            model.connection = try ConnectionStore().saveCenter(result)
+            await model.validateCenter()
+            if case .connected = model.centerState { activationError = nil }
+            else { activationError = "连接验证失败，请重试" }
+        } catch {
+            activationError = error.localizedDescription
         }
     }
 
@@ -202,7 +230,6 @@ private struct ConnectionSetupView: View {
             }.padding(14).frame(maxWidth: 520)
         }
         .onAppear { directProviders = model.directProviders.installed }
-        .onOpenURL { url in Task { await activate(url: url) } }
         .sheet(isPresented: $showingScanner) {
             ZStack(alignment: .topTrailing) {
                 ActivationScannerView { value in

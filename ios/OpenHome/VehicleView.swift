@@ -124,7 +124,18 @@ struct VehicleView: View {
     }
     private func chargingCard(_ value: VehicleSnapshot) -> some View { HStack { Label("正在充电", systemImage: "bolt.fill"); Spacer(); if let power = value.chargingPowerKW { Text("\(number(power)) kW") }; if let minutes = value.remainingChargeMinutes { Text("\(minutes / 60)h \(minutes % 60)m") } }.font(.subheadline.weight(.semibold)).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16)) }
 
-    private func connection(_ value: VehicleSnapshot) -> some View { Image(systemName: value.online == false ? "antenna.radiowaves.left.and.right.slash" : "antenna.radiowaves.left.and.right").foregroundStyle(.secondary).accessibilityLabel(value.online == false ? "离线" : "在线") }
+    private func connection(_ value: VehicleSnapshot) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: value.online == false ? "antenna.radiowaves.left.and.right.slash" : "antenna.radiowaves.left.and.right")
+                .accessibilityLabel(connectionLabel(value))
+            if let updatedAt = value.updatedAt { Text(updatedAt, style: .time).font(.caption2.monospacedDigit()) }
+        }.foregroundStyle(.secondary)
+    }
+    private func connectionLabel(_ value: VehicleSnapshot) -> String {
+        guard value.online != false else { return "离线" }
+        guard let level = value.signalStrength else { return "在线" }
+        return level >= 4 ? "信号良好" : level >= 2 ? "信号一般" : "信号较弱"
+    }
     private func level(_ symbol: String, _ percent: Double?, _ range: Double?, _ color: Color) -> some View { VStack(alignment: .leading, spacing: 4) { HStack(spacing: 4) { Image(systemName: symbol).foregroundStyle(color); Text(percent.map { "\(Int($0))%" } ?? "—").font(.subheadline.bold()) }; Text(range.map { "\(number($0)) km" } ?? "—").font(.caption2).foregroundStyle(.secondary) }.frame(width: 66, alignment: .leading) }
     private func metric(_ label: String, _ value: Double?, _ unit: String, _ symbol: String) -> some View { HStack(spacing: 10) { Image(systemName: symbol).frame(width: 34, height: 34).background(Color.openHomeAuto.opacity(0.12), in: RoundedRectangle(cornerRadius: 10)); VStack(alignment: .leading, spacing: 2) { Text(label).font(.caption).foregroundStyle(.secondary); Text("\(number(value)) \(unit)").font(.headline) } }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(.white, in: RoundedRectangle(cornerRadius: 16)) }
     private func energyMetric(_ label: String, _ value: Double?, _ unit: String, _ symbol: String) -> some View { VStack(alignment: .leading, spacing: 5) { Label(label, systemImage: symbol).font(.caption).foregroundStyle(.secondary); Text("\(number(value)) \(unit)").font(.subheadline.bold()) }.frame(maxWidth: .infinity, alignment: .leading).padding(11).background(Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 12)) }

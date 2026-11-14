@@ -3,7 +3,7 @@ import { listDevices, revokeDevice } from "@/lib/client-auth";
 import { jsonError } from "@/lib/http";
 
 export async function GET(request: Request) {
-  try { assertBrowserAccess(request); return Response.json({ ok: true, data: await listDevices() }); }
+  try { assertBrowserAccess(request); return Response.json({ ok: true, data: await listDevices() }, { headers: { "cache-control": "no-store" } }); }
   catch (error) { return jsonError(error); }
 }
 

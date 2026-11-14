@@ -9,7 +9,7 @@ type Activation = { activationCode: string; activationURL: string; activationQRC
 type Result<T> = { ok: boolean; data?: T; message?: string };
 
 async function api<T>(path: string, init?: RequestInit) {
-  const response = await fetch(path, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
+  const response = await fetch(path, { cache: "no-store", ...init, headers: { "content-type": "application/json", ...init?.headers } });
   const payload = await response.json() as Result<T>;
   if (!response.ok || !payload.ok || payload.data === undefined) throw new Error(payload.message || "请求失败");
   return payload.data;

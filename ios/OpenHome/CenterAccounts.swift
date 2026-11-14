@@ -16,10 +16,13 @@ struct CenterAccountClient: Sendable {
             let response: Envelope<[GateAccount]> = try await client.get("accounts")
             return response.data.map { .init(id: $0.id, displayName: $0.username) }
         case .living:
+            let _: Envelope<Discarded> = try await client.get("dryer/homes")
             return [try await profile(path: "dryer/profile")]
         case .lock:
+            let _: Envelope<Discarded> = try await client.get("lock/devices")
             return [try await profile(path: "lock/profile")]
         case .auto:
+            let _: Envelope<Discarded> = try await client.get("auto/bootstrap")
             return [try await profile(path: "auto/profile")]
         }
     }
@@ -76,6 +79,7 @@ struct CenterAccountClient: Sendable {
 
     private struct GateAccount: Decodable, Sendable { let id: String; let username: String }
     private struct Profile: Decodable, Sendable { let accountId: String; let displayName: String? }
+    private struct Discarded: Decodable, Sendable { init(from decoder: Decoder) throws {} }
     private struct Acknowledgement: Decodable, Sendable { let ok: Bool; let message: String? }
 }
 

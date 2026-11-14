@@ -20,7 +20,16 @@ struct KeychainStore: Sendable {
         var item = query
         item[kSecValueData as String] = value
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw KeychainError.writeFailed }
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecMissingEntitlement, accessGroup != nil {
+            var localItem = self.query(account: account, shared: false)
+            SecItemDelete(localItem as CFDictionary)
+            localItem[kSecValueData as String] = value
+            localItem[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            guard SecItemAdd(localItem as CFDictionary, nil) == errSecSuccess else { throw KeychainError.writeFailed }
+            return
+        }
+        guard status == errSecSuccess else { throw KeychainError.writeFailed }
     }
 
     func read(account: String) throws -> Data? {
@@ -29,14 +38,16 @@ struct KeychainStore: Sendable {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound, accessGroup != nil {
+        if (status == errSecItemNotFound || status == errSecMissingEntitlement), accessGroup != nil {
             var legacy = self.query(account: account, shared: false)
             legacy[kSecReturnData as String] = true
             legacy[kSecMatchLimit as String] = kSecMatchLimitOne
             let legacyStatus = SecItemCopyMatching(legacy as CFDictionary, &result)
             if legacyStatus == errSecSuccess, let data = result as? Data {
-                try save(data, account: account)
-                SecItemDelete(self.query(account: account, shared: false) as CFDictionary)
+                if status == errSecItemNotFound {
+                    try save(data, account: account)
+                    SecItemDelete(self.query(account: account, shared: false) as CFDictionary)
+                }
                 return data
             }
             if legacyStatus == errSecItemNotFound { return nil }
@@ -50,6 +61,11 @@ struct KeychainStore: Sendable {
     func delete(account: String) throws {
         let query = query(account: account)
         let status = SecItemDelete(query as CFDictionary)
+        if status == errSecMissingEntitlement, accessGroup != nil {
+            let localStatus = SecItemDelete(self.query(account: account, shared: false) as CFDictionary)
+            guard localStatus == errSecSuccess || localStatus == errSecItemNotFound else { throw KeychainError.writeFailed }
+            return
+        }
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.writeFailed }
     }
 }

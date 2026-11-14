@@ -85,7 +85,7 @@ struct LockView: View {
             Picker("记录", selection: $recordKind) { ForEach(LockViewModel.RecordKind.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
             let records = model.records(recordKind)
             if records.isEmpty { Text("暂无记录").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 90) } else { ForEach(records) { event in eventRow(event) } }
-            if model.cursors[recordKind] != nil { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task { await model.loadMore(recordKind) } }
+            if let cursor = model.cursors[recordKind] { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: "\(recordKind.id)|\(cursor)") { await model.loadMore(recordKind) } }
         }
     }
     private func eventRow(_ event: LockEvent) -> some View {
@@ -95,7 +95,7 @@ struct LockView: View {
         VStack(spacing: 10) {
             if model.captures.isEmpty { Text("暂无抓拍").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 90) }
             else { LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 10) { ForEach(model.captures) { capture in Button { viewer = capture.video.map(Viewer.video) ?? .image(capture.image) } label: { VStack(alignment: .leading, spacing: 5) { ZStack { captureImage(capture.image); if capture.video != nil { Image(systemName: "play.fill").font(.headline).foregroundStyle(.white).padding(9).background(.black.opacity(0.55), in: Circle()) } }.aspectRatio(4 / 3, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10)); Text(displayTime(capture.time)).font(.caption2).foregroundStyle(.secondary).lineLimit(1) } }.buttonStyle(.plain) } } }
-            if model.captureCursor != nil { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task { await model.loadMoreCaptures() } }
+            if let cursor = model.captureCursor { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: cursor) { await model.loadMoreCaptures() } }
         }
     }
     private func captureImage(_ url: URL) -> some View { AsyncImage(url: url) { phase in if case .success(let image) = phase { image.resizable().scaledToFill().rotationEffect(.degrees(90)).scaleEffect(1.34) } else if case .failure = phase { Color.black.opacity(0.08).overlay { Image(systemName: "photo") } } else { Color.black.opacity(0.06).overlay { ProgressView() } } }.clipped() }
