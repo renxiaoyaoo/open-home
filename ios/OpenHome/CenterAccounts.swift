@@ -98,7 +98,7 @@ private enum AccountError: LocalizedError {
 @Observable
 private final class CenterAccountModel {
     var accounts: [ProviderID: [CenterAccount]] = [:]
-    var isLoading = false
+    var loadingProviders: Set<ProviderID> = []
     var isBusy = false
     var message: String?
     private let client: CenterAccountClient
@@ -106,8 +106,8 @@ private final class CenterAccountModel {
     init(client: CenterAccountClient) { self.client = client }
 
     func load(_ provider: ProviderID) async {
-        guard !isLoading else { return }
-        isLoading = true; defer { isLoading = false }
+        guard loadingProviders.insert(provider).inserted else { return }
+        defer { loadingProviders.remove(provider) }
         do { accounts[provider] = try await client.accounts(for: provider); message = nil }
         catch APIError.unauthorized { accounts[provider] = []; message = nil }
         catch APIError.providerAuthenticationRequired { accounts[provider] = []; message = nil }
@@ -182,7 +182,7 @@ struct CenterAccountManagementView: View {
 
     @ViewBuilder private var accountSection: some View {
         Section("已连接") {
-            if model.isLoading { HStack { Spacer(); ProgressView(); Spacer() } }
+            if model.loadingProviders.contains(provider) { HStack { Spacer(); ProgressView(); Spacer() } }
             else if currentAccounts.isEmpty { Text("尚未登录").foregroundStyle(.secondary) }
             else {
                 ForEach(currentAccounts) { account in
@@ -216,7 +216,10 @@ struct CenterAccountManagementView: View {
 
     private var currentAccounts: [CenterAccount] { model.accounts[provider] ?? [] }
     private var usesCode: Bool { provider == .gate || provider == .living }
-    private var shouldShowLogin: Bool { provider == .gate ? showingLogin || currentAccounts.isEmpty : currentAccounts.isEmpty }
+    private var shouldShowLogin: Bool {
+        guard !model.loadingProviders.contains(provider) else { return false }
+        return provider == .gate ? showingLogin || currentAccounts.isEmpty : currentAccounts.isEmpty
+    }
 
     private func requestCode() async {
         if provider == .gate, pendingGateID == nil { pendingGateID = "og-\(UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12))" }

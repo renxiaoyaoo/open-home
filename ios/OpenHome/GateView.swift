@@ -81,7 +81,7 @@ struct GateView: View {
             if !model.isLoading && model.resources.filter(\.selected).isEmpty { ContentUnavailableView("暂无常用门禁", systemImage: "door.left.hand.closed") }
         }
         .overlay(alignment: .bottom) { if let message = model.message { Text(message).font(.footnote.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 10).background(.ultraThinMaterial, in: Capsule()).padding(.bottom, 16) } }
-        .task { await model.load() }
+        .task { if model.resources.isEmpty { await model.load() } }
         .refreshable { await model.load() }
         .sheet(isPresented: $showingManagement) { GateManagementView(model: model) }
     }

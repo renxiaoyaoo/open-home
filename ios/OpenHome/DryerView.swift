@@ -117,7 +117,15 @@ struct DryerView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let value = model.snapshot { controlCard(value).padding(.horizontal, 14).padding(.vertical, 8).background(.ultraThinMaterial) }
         }
-        .task(id: scenePhase) { guard scenePhase == .active else { return }; while !Task.isCancelled { await model.refresh(); try? await Task.sleep(for: model.refreshInterval) } }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            if model.snapshot == nil { await model.refresh() }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: model.refreshInterval)
+                guard !Task.isCancelled else { return }
+                await model.refresh()
+            }
+        }
         .refreshable { await model.refresh() }
         .confirmationDialog("关机？", isPresented: $confirmsPowerOff, titleVisibility: .visible) {
             Button("确认关机", role: .destructive) { Task { await model.togglePower() } }; Button("取消", role: .cancel) {}

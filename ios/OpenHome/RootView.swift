@@ -325,25 +325,38 @@ private struct ProviderModuleView: View {
     var body: some View {
         switch module {
         case .gate:
-            resolved { GateView(provider: try factory.gateProvider()) }
+            gateContent
         case .living:
-            resolved { DryerView(provider: try factory.dryerProvider(), registrar: factory.liveActivityRegistrar()) }
+            livingContent
         case .auto:
-            resolved { VehicleView(provider: try factory.vehicleProvider(), registrar: factory.liveActivityRegistrar()) }
+            autoContent
         case .lock:
-            resolved { LockView(provider: try factory.lockProvider()) }
+            lockContent
         }
     }
 
-    private func resolved<Content: View>(content: () throws -> Content) -> AnyView {
-        do { return AnyView(try content()) }
-        catch ProviderError.authenticationRequired {
-            guard let authenticator = try? directRegistry?.authenticator(module.providerID) else {
-                return AnyView(ModuleUnavailableView(module: module, message: "登录组件不可用"))
-            }
-            return AnyView(DirectLoginView(module: module, authenticator: authenticator) { authenticationRevision += 1 }.id(authenticationRevision))
-        } catch {
-            return AnyView(ModuleUnavailableView(module: module, message: error.localizedDescription))
+    @ViewBuilder private var gateContent: some View {
+        if let provider = try? factory.gateProvider() { GateView(provider: provider) } else { authenticationFallback }
+    }
+
+    @ViewBuilder private var livingContent: some View {
+        if let provider = try? factory.dryerProvider() { DryerView(provider: provider, registrar: factory.liveActivityRegistrar()) } else { authenticationFallback }
+    }
+
+    @ViewBuilder private var autoContent: some View {
+        if let provider = try? factory.vehicleProvider() { VehicleView(provider: provider, registrar: factory.liveActivityRegistrar()) } else { authenticationFallback }
+    }
+
+    @ViewBuilder private var lockContent: some View {
+        if let provider = try? factory.lockProvider() { LockView(provider: provider) } else { authenticationFallback }
+    }
+
+    @ViewBuilder private var authenticationFallback: some View {
+        if let authenticator = try? directRegistry?.authenticator(module.providerID) {
+            DirectLoginView(module: module, authenticator: authenticator) { authenticationRevision += 1 }
+                .id(authenticationRevision)
+        } else {
+            ModuleUnavailableView(module: module, message: directRegistry == nil ? "连接配置不可用" : "登录组件不可用")
         }
     }
 }

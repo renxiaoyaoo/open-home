@@ -61,7 +61,7 @@ struct LockView: View {
             if let detail = model.detail { VStack(spacing: 12) { status(detail); passwordCard; recordsCard }.padding(14).frame(maxWidth: 520) }
             else if model.isLoading { ProgressView().padding(.top, 100) }
             else { ContentUnavailableView("门锁暂时未加载", systemImage: "lock.shield", description: Text(model.message ?? "下拉重试")) }
-        }.task { await model.load() }.refreshable { await model.load() }.sheet(item: $viewer) { MediaViewer(item: $0) }
+        }.task { if model.detail == nil { await model.load() } }.refreshable { await model.load() }.sheet(item: $viewer) { MediaViewer(item: $0) }
     }
     private func status(_ detail: LockDetail) -> some View {
         VStack(alignment: .leading, spacing: 16) {
