@@ -59,9 +59,9 @@ test("maps only model-verified dryer parameters into one property update", async
 
 test("refreshes an expired appliance session and retries the original request once", async () => {
   const originalFetch = globalThis.fetch;
-  const calls: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+  const calls: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
   globalThis.fetch = async (input, init) => {
-    calls.push({ url: String(input), headers: init?.headers as Record<string, string>, body: JSON.parse(String(init?.body || "{}")) });
+    calls.push({ url: String(input), headers: init?.headers as Record<string, string>, body: String(init?.body || "") });
     if (calls.length === 1) return Response.json({ code: 40002, msg: "token expired" });
     if (calls.length === 2) return Response.json({ code: 0, data: { accessToken: "fresh-token", expired: 99 } });
     return Response.json({ code: 0, data: { homeList: [] } });
@@ -73,17 +73,17 @@ test("refreshes an expired appliance session and retries the original request on
   assert.equal(calls[1].headers.userId, "user");
   assert.equal(calls[1].headers.accessToken, undefined);
   assert.equal(calls[1].headers.uid, undefined);
-  assert.deepEqual(calls[1].body, { timestamp: calls[1].body.timestamp, data: { tokenPwd: "refresh-secret", rule: 1, platform: 2, iotAppId: "test", deviceId: "client" } });
+  assert.match(calls[1].body, /^\{timestamp=\d{14}, data=\{"tokenPwd":"refresh-secret","rule":1,"platform":2,"iotAppId":"test","deviceId":"client"\}\}$/);
   assert.equal(calls[2].headers.accessToken, "fresh-token");
   assert.equal(session.accessToken, "fresh-token");
   assert.equal(session.accessTokenExpiresAt, 99);
 });
 
 test("refreshes an appliance session when the provider rejects the token password", async () => {
-  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const calls: Array<{ url: string; body: string }> = [];
   let homes = 0;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input); const body = JSON.parse(String(init?.body || "{}")); calls.push({ url, body });
+    const url = String(input); const body = String(init?.body || ""); calls.push({ url, body });
     if (url.endsWith("/homes")) return Response.json(homes++ === 0 ? { code: 65012, msg: "token invalid" } : { code: 0, data: [] });
     return Response.json({ code: 0, data: { accessToken: "new-token", expired: 123 } });
   }) as typeof fetch;
