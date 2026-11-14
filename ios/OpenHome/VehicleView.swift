@@ -3,14 +3,24 @@ import Observation
 import SwiftUI
 
 @MainActor @Observable final class VehicleViewModel {
+    var vehicles: [VehicleResource] = []; var selectedVehicleID = ""
     var snapshot: VehicleSnapshot?; var energy: VehicleEnergy?; var isLoading = false; var message: String?
     private let provider: any VehicleProvider; private let liveStatus: LiveStatusManager; private var activityID: String?
     var refreshInterval: Duration { switch snapshot?.state { case .ready, .driving, .charging: .seconds(5); default: .seconds(30) } }
     init(provider: any VehicleProvider, registrar: (any LiveActivityRegistrar)? = nil) { self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar) }
     func loadDetail() async {
         guard !isLoading else { return }; isLoading = true; defer { isLoading = false }
-        do { let value = try await provider.detail(); snapshot = value.summary; energy = value.energy; message = nil; await updateLiveStatus(value.summary) }
+        do {
+            if vehicles.isEmpty { vehicles = try await provider.vehicles() }
+            let value = try await provider.detail(); snapshot = value.summary; selectedVehicleID = value.summary.vehicleID; energy = value.energy; message = nil; await updateLiveStatus(value.summary)
+        }
         catch { message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
+    }
+    func selectVehicle(_ id: String) async {
+        guard id != selectedVehicleID, !isLoading else { return }
+        isLoading = true; defer { isLoading = false }
+        do { try await provider.selectVehicle(id: id); let value = try await provider.detail(); selectedVehicleID = id; snapshot = value.summary; energy = value.energy; message = nil; await updateLiveStatus(value.summary) }
+        catch { message = error.localizedDescription }
     }
     func refreshStatus() async {
         guard !isLoading else { return }
@@ -57,7 +67,7 @@ struct VehicleView: View {
     }
     private func summaryCard(_ value: VehicleSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { VStack(alignment: .leading, spacing: 3) { Text(cleanName(value.name)).font(.title3.bold()); Text(value.state.label).font(.caption).foregroundStyle(.secondary) }; Spacer(); connection(value) }
+            HStack { VStack(alignment: .leading, spacing: 3) { Text(cleanName(value.name)).font(.title3.bold()); Text(value.state.label).font(.caption).foregroundStyle(.secondary) }; Spacer(); if model.vehicles.count > 1 { Menu { ForEach(model.vehicles) { vehicle in Button(vehicle.name) { Task { await model.selectVehicle(vehicle.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") }.accessibilityLabel("选择车辆") }; connection(value) }
             HStack(alignment: .lastTextBaseline) { Text(number(value.totalRangeKM)).font(.system(size: 42, weight: .medium, design: .rounded)); Text("km").font(.caption).foregroundStyle(.secondary); Spacer(); level("bolt.fill", value.batteryPercent, value.electricRangeKM, .green); level("fuelpump.fill", value.fuelPercent, value.fuelRangeKM, .blue) }
             HStack(spacing: 8) { Label(value.driveMode == "electric" ? "EV" : value.driveMode == "hybrid" ? "HEV" : value.state.label, systemImage: "gauge.with.dots.needle.33percent"); if let location = value.locationName { Spacer(); Label(location, systemImage: "location.fill").lineLimit(1) } }.font(.caption).foregroundStyle(.secondary)
         }.padding(18).background(Color.openHomeAuto.opacity(0.13), in: RoundedRectangle(cornerRadius: 18))

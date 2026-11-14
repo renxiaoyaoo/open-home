@@ -31,14 +31,12 @@ test("center storage contains provider sessions and client device identities", a
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("consumes a self-contained activation once and authenticates the issued device", async () => {
+test("consumes a human-readable activation once and authenticates the issued device", async () => {
   const { activateClient, authenticateDevice, createActivation, revokeDevice } = await import("../lib/client-auth.ts");
   const issued = await createActivation("https://home.example/api/v1", 10);
-  assert.match(issued.activationCode, /^oh1\./);
-  const encoded = issued.activationCode.slice(4).replace(/-/g, "+").replace(/_/g, "/");
-  const payload = JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as { baseURL: string; code: string };
-  assert.equal(payload.baseURL, "https://home.example/api/v1");
-  const device = await activateClient(payload.code, "Test iPhone");
+  assert.match(issued.activationCode, /^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+  assert.equal(issued.publicAPIURL, "https://home.example/api/v1");
+  const device = await activateClient(issued.activationCode.toLowerCase(), "Test iPhone");
   const authenticated = await authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } }));
   assert.equal(authenticated.deviceID, device.deviceID);
   assert.equal(authenticated.deviceName, "Test iPhone");
@@ -64,5 +62,5 @@ test("consumes a self-contained activation once and authenticates the issued dev
   assert.deepEqual(await refreshLiveActivities(), []);
   await revokeDevice(device.deviceID);
   await assert.rejects(() => authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } })), /authorization failed/);
-  await assert.rejects(() => activateClient(payload.code, "Second iPhone"), /invalid or expired/);
+  await assert.rejects(() => activateClient(issued.activationCode, "Second iPhone"), /invalid or expired/);
 });

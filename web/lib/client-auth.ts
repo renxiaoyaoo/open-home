@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { getDb } from "../db/index.ts";
 
-const ACTIVATION_PREFIX = "oh1.";
+const ACTIVATION_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 export class ClientAuthorizationError extends Error {}
 
 function key() {
@@ -23,18 +23,19 @@ export function assertAdmin(request: Request) {
 
 export async function createActivation(publicAPIURL: string, lifetimeMinutes = 10) {
   const baseURL = apiBaseURL(publicAPIURL);
-  const secret = randomBytes(24).toString("base64url");
+  const bytes = randomBytes(8);
+  const secret = Array.from(bytes, (value) => ACTIVATION_ALPHABET[value % ACTIVATION_ALPHABET.length]).join("");
   const now = Date.now();
   const expiresAt = now + Math.min(Math.max(lifetimeMinutes, 1), 60) * 60_000;
   await (await getDb()).prepare("INSERT INTO activation_codes (id,secret_hash,expires_at,created_at) VALUES (?,?,?,?)").bind(randomUUID(), digest("activation", secret), expiresAt, now).run();
-  const payload = Buffer.from(JSON.stringify({ baseURL, code: secret }), "utf8").toString("base64url");
-  return { activationCode: `${ACTIVATION_PREFIX}${payload}`, expiresAt };
+  return { activationCode: `${secret.slice(0, 4)}-${secret.slice(4)}`, publicAPIURL: baseURL, expiresAt };
 }
 
 export async function activateClient(code: string, rawName: unknown) {
-  if (!/^[A-Za-z0-9_-]{32}$/.test(code)) throw new Error("Activation code is invalid");
+  const normalized = code.replace(/[\s-]/g, "").toUpperCase();
+  if (!/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(normalized) && !/^[A-Za-z0-9_-]{32}$/.test(code)) throw new Error("Activation code is invalid");
   const db = await getDb(); const now = Date.now();
-  const consumed = await db.prepare("DELETE FROM activation_codes WHERE secret_hash=? AND expires_at>=? RETURNING id").bind(digest("activation", code), now).first<{ id: string }>();
+  const consumed = await db.prepare("DELETE FROM activation_codes WHERE secret_hash=? AND expires_at>=? RETURNING id").bind(digest("activation", normalized.length === 8 ? normalized : code), now).first<{ id: string }>();
   if (!consumed) throw new Error("Activation code is invalid or expired");
   const id = randomUUID(); const secret = randomBytes(32).toString("base64url");
   await db.prepare("INSERT INTO client_devices (id,name,token_hash,created_at,last_seen_at,revoked_at) VALUES (?,?,?,?,?,NULL)").bind(id, deviceName(rawName), digest("device", secret), now, now).run();

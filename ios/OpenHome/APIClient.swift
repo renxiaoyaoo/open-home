@@ -196,7 +196,7 @@ actor RemoteDryerProvider: DryerProvider {
         let state: DryerSnapshot.State
         if !powered { state = .off }
         else { switch status { case 2: state = .running; case 3, 9: state = .paused; case 4, 8: state = .scheduled; case 5: state = .fault; case 6: state = .finished; default: state = .idle } }
-        return DryerSnapshot(deviceID: device.applianceCode, name: device.name ?? "干衣机", state: state, programName: DryerWire.programs[programID ?? -1], programID: programID, remainingMinutes: remaining, expectedFinish: remaining.map { Date().addingTimeInterval(TimeInterval($0 * 60)) })
+        return DryerSnapshot(deviceID: device.applianceCode, name: device.name ?? "干衣机", state: state, programName: DryerWire.programs[programID ?? -1], programID: programID, parameters: response.data.openHomeParameters ?? [:], remainingMinutes: remaining, expectedFinish: remaining.map { Date().addingTimeInterval(TimeInterval($0 * 60)) })
     }
 
     func programs() async throws -> [DryerProgram] {
@@ -266,6 +266,7 @@ private enum DryerWire {
     struct Status: Decodable, Sendable {
         let properties: [Property]?
         let data: NestedStatus?
+        let openHomeParameters: [String: Int]?
         var values: [String: JSONScalar] { Dictionary(uniqueKeysWithValues: (properties ?? data?.properties ?? []).compactMap { property in property.code.map { ($0, property.value) } }) }
     }
     struct NestedStatus: Decodable, Sendable { let properties: [Property]? }
@@ -293,21 +294,28 @@ private enum JSONScalar: Decodable, Sendable {
 
 actor RemoteVehicleProvider: VehicleProvider {
     let client: APIClient
+    private var availableVehicles: [VehicleWire.Vehicle] = []
     private var vehicle: VehicleWire.Vehicle?
     private var initialDetail: VehicleDetailSnapshot?
 
     init(client: APIClient) { self.client = client }
 
+    func vehicles() async throws -> [VehicleResource] {
+        if availableVehicles.isEmpty { try await bootstrap() }
+        return availableVehicles.map { .init(id: $0.id, name: $0.name) }
+    }
+
+    func selectVehicle(id: String) async throws {
+        if availableVehicles.isEmpty { try await bootstrap() }
+        guard let selected = availableVehicles.first(where: { $0.id == id }) else { throw ProviderError.invalidResponse }
+        vehicle = selected
+        initialDetail = nil
+    }
+
     func snapshot() async throws -> VehicleSnapshot {
         if vehicle == nil {
-            let response: Envelope<VehicleWire.Bootstrap> = try await client.get("auto/bootstrap")
-            guard let first = response.data.vehicles.first else { throw ProviderError.invalidResponse }
-            vehicle = first
-            if let initial = response.data.snapshot {
-                let detail = VehicleDetailSnapshot(summary: normalize(initial.summary, fallback: first), energy: initial.energy)
-                initialDetail = detail
-                return detail.summary
-            }
+            try await bootstrap()
+            if let initialDetail { return initialDetail.summary }
         }
         guard let vehicle else { throw ProviderError.invalidResponse }
         let response: Envelope<VehicleWire.Summary> = try await client.get("auto/status", query: [.init(name: "vehicleId", value: vehicle.id)])
@@ -320,6 +328,16 @@ actor RemoteVehicleProvider: VehicleProvider {
         guard let vehicle else { throw ProviderError.invalidResponse }
         let response: Envelope<VehicleWire.Snapshot> = try await client.get("auto/summary", query: [.init(name: "vehicleId", value: vehicle.id)])
         return .init(summary: normalize(response.data.summary, fallback: vehicle), energy: response.data.energy)
+    }
+
+    private func bootstrap() async throws {
+        let response: Envelope<VehicleWire.Bootstrap> = try await client.get("auto/bootstrap")
+        guard let first = response.data.vehicles.first else { throw ProviderError.invalidResponse }
+        availableVehicles = response.data.vehicles
+        vehicle = first
+        if let initial = response.data.snapshot {
+            initialDetail = .init(summary: normalize(initial.summary, fallback: first), energy: initial.energy)
+        }
     }
 
     private func normalize(_ value: VehicleWire.Summary, fallback: VehicleWire.Vehicle) -> VehicleSnapshot {

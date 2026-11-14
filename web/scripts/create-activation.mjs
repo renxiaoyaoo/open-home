@@ -13,4 +13,4 @@ const response = await fetch(new URL("client/activation-codes", `${publicAPIURL.
 });
 const payload = await response.json();
 if (!response.ok || !payload.ok) throw new Error(payload.message || `Activation service returned ${response.status}`);
-process.stdout.write(`${payload.data.activationCode}\n`);
+process.stdout.write(`OpenHome 地址：${payload.data.publicAPIURL}\n激活码：${payload.data.activationCode}\n有效期：10 分钟（仅可使用一次）\n`);

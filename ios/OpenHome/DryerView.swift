@@ -10,6 +10,7 @@ final class DryerViewModel {
     var showsAllPrograms = false
     var scheduledStart = Calendar.current.date(bySettingHour: 23, minute: 0, second: 0, of: .now) ?? .now
     var parameterValues: [String: Int] = [:]
+    var programPresentation: DryerProgram?
     var isLoading = false
     var isOperating = false
     var message: String?
@@ -20,7 +21,10 @@ final class DryerViewModel {
     var refreshInterval: Duration {
         switch snapshot?.state { case .running, .paused, .scheduled: return .seconds(5); default: return .seconds(30) }
     }
-    var selectedProgram: DryerProgram? { programs.first { $0.value == snapshot?.programID && ($0.group != "DIY" || snapshot?.programName == $0.name) } }
+    var selectedProgram: DryerProgram? {
+        if let programPresentation, programPresentation.value == snapshot?.programID { return programPresentation }
+        return programs.first { $0.value == snapshot?.programID && ($0.group != "DIY" || snapshot?.programName == $0.name) }
+    }
     var visiblePrograms: [DryerProgram] { let values = programs.filter { $0.group == programGroup }; return showsAllPrograms || programGroup == "DIY" ? values : Array(values.prefix(4)) }
     var canChangeProgram: Bool {
         guard !isOperating else { return false }
@@ -32,18 +36,20 @@ final class DryerViewModel {
     func refresh() async {
         guard !isLoading, !isOperating else { return }
         isLoading = true; defer { isLoading = false }
-        do { let value = try await provider.snapshot(); snapshot = value; message = nil; await updateLiveStatus(value); if programs.isEmpty { programs = (try? await provider.programs()) ?? [] } }
+        do { let value = try await provider.snapshot(); if value.programID != snapshot?.programID { programPresentation = nil }; snapshot = value; parameterValues = value.parameters; message = nil; await updateLiveStatus(value); if programs.isEmpty { programs = (try? await provider.programs()) ?? [] } }
         catch { message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
     }
     func select(_ program: DryerProgram) async {
         guard canChangeProgram else { return }
         parameterValues = defaultParameters(program)
-        await operate { try await provider.selectProgram(program) }
+        programPresentation = program
+        guard await operate(operation: { try await provider.selectProgram(program) }) else { programPresentation = nil; return }
+        await confirmProgram(program)
     }
     func configure(_ program: DryerProgram, parameters: [String: Int]) async -> Bool {
         guard canChangeProgram else { return false }
         let succeeded = await operate { try await provider.configureProgram(program, parameters: parameters) }
-        if succeeded { parameterValues = parameters }
+        if succeeded { programPresentation = program; parameterValues = parameters; await confirmProgram(program) }
         return succeeded
     }
     func togglePower() async { await operate { try await provider.setPower(snapshot?.state == .off) } }
@@ -77,6 +83,13 @@ final class DryerViewModel {
         isOperating = true; defer { isOperating = false }
         do { try await operation(); try? await Task.sleep(for: extraDelay); let value = try await provider.snapshot(); snapshot = value; message = nil; await updateLiveStatus(value); return true }
         catch { message = error.localizedDescription; return false }
+    }
+    private func confirmProgram(_ program: DryerProgram) async {
+        for _ in 0..<2 where snapshot?.programID != program.value {
+            try? await Task.sleep(for: .seconds(1))
+            if let value = try? await provider.snapshot() { snapshot = value; if !value.parameters.isEmpty { parameterValues = value.parameters } }
+        }
+        if snapshot?.programID != program.value { message = "设备未确认程序切换" }
     }
     private func updateLiveStatus(_ value: DryerSnapshot) async {
         let active = value.state == .running || value.state == .scheduled || value.state == .paused

@@ -1,7 +1,8 @@
 # OpenHome for iOS
 
 The native client shares OpenHome's provider-neutral domain and API boundary.
-It supports a remote center selected with an activation code and installable
+It supports a remote center selected with its address and a human-readable,
+short-lived activation code, plus installable
 on-device provider adapters. The shared factory passes each adapter only its
 provider-scoped Keychain session; credentials belong in Keychain and provider-specific
 protocol values do not belong in this public target.
@@ -11,8 +12,9 @@ renders normalized dryer and vehicle state on the Lock Screen and Dynamic
 Island. Center mode registers ActivityKit push tokens through the portable API;
 direct mode refreshes state while the app has permitted execution time.
 
-An activation package contains the center API URL and a short-lived, single-use
-secret. Native traffic reaches a non-interactive API origin protected by the
+An activation code is short-lived and single-use. The app remembers the center
+address separately so the code remains readable and the client stays portable.
+Native traffic reaches a non-interactive API origin protected by the
 issued device bearer token. The Web origin may remain behind an identity proxy;
 the server accepts its configured trusted identity header. These can be two
 hostnames routing the same application and database, without coupling the core

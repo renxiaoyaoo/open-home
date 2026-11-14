@@ -143,6 +143,7 @@ struct DryerSnapshot: Codable, Sendable, Equatable {
     let state: State
     let programName: String?
     let programID: Int?
+    let parameters: [String: Int]
     let remainingMinutes: Int?
     let expectedFinish: Date?
 
@@ -207,4 +208,9 @@ struct VehicleEnergy: Codable, Sendable, Equatable {
     let updatedAt: String?
 }
 struct VehicleDetailSnapshot: Sendable, Equatable { let summary: VehicleSnapshot; let energy: VehicleEnergy }
-protocol VehicleProvider: HomeProvider where Snapshot == VehicleSnapshot { func detail() async throws -> VehicleDetailSnapshot }
+struct VehicleResource: Codable, Sendable, Identifiable, Equatable { let id: String; let name: String }
+protocol VehicleProvider: HomeProvider where Snapshot == VehicleSnapshot {
+    func vehicles() async throws -> [VehicleResource]
+    func selectVehicle(id: String) async throws
+    func detail() async throws -> VehicleDetailSnapshot
+}

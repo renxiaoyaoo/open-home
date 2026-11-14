@@ -138,6 +138,7 @@ private struct ModuleManagementView: View {
 private struct ConnectionSetupView: View {
     @Environment(AppModel.self) private var model
     @State private var mode: ConnectionMode = .center
+    @AppStorage("openhome.last-center-url") private var centerAddress = ""
     @State private var activationCode = ""
     @State private var isActivating = false
     @State private var errorMessage: String?
@@ -155,7 +156,12 @@ private struct ConnectionSetupView: View {
                     Image(systemName: mode == .center ? "house.and.flag" : "iphone.gen3").font(.title2).foregroundStyle(Color.openHomeAccent)
                     Text(mode == .center ? "连接自己的 OpenHome" : "直接连接设备服务").font(.title2.bold())
                     if mode == .center {
-                        TextField("激活码", text: $activationCode).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                        TextField("OpenHome 地址", text: $centerAddress)
+                            .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                        TextField("激活码", text: $activationCode)
+                            .textInputAutocapitalization(.characters).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                            .font(.system(.title3, design: .monospaced).weight(.semibold))
+                            .onChange(of: activationCode) { _, value in activationCode = formattedActivationCode(value) }
                         Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.isEmpty || isActivating)
                         if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
                     } else {
@@ -187,11 +193,26 @@ private struct ConnectionSetupView: View {
         isActivating = true; errorMessage = nil
         defer { isActivating = false }
         do {
-            let result = try await ActivationClient().activate(package: activationCode.trimmingCharacters(in: .whitespacesAndNewlines), deviceName: "iPhone")
+            guard let baseURL = normalizedCenterURL(centerAddress) else { throw ActivationError.invalidAddress }
+            let result = try await ActivationClient().activate(baseURL: baseURL, code: activationCode, deviceName: "iPhone")
             model.connection = try ConnectionStore().saveCenter(result)
             await model.validateCenter()
             activationCode = ""
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func formattedActivationCode(_ value: String) -> String {
+        let allowed = value.uppercased().filter { "23456789ABCDEFGHJKLMNPQRSTUVWXYZ".contains($0) }.prefix(8)
+        return allowed.count > 4 ? "\(allowed.prefix(4))-\(allowed.dropFirst(4))" : String(allowed)
+    }
+
+    private func normalizedCenterURL(_ value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: trimmed.contains("://") ? trimmed : "https://\(trimmed)"), components.host != nil else { return nil }
+        let path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if path.isEmpty { components.path = "/api/v1" }
+        else if path != "api/v1" && !path.hasSuffix("/api/v1") { components.path += "/api/v1" }
+        return components.url
     }
 }
 

@@ -7,7 +7,7 @@ servers: [{ url: "https://your-open-home.example/api/v1" }]
 security: [{ deviceToken: [] }, { accessBoundary: [] }]
 paths:
   /client/activation-codes:
-    post: { summary: Create a short-lived single-use activation package, security: [{ administratorToken: [] }], responses: { "200": { description: Activation package and expiry } } }
+    post: { summary: Create a short-lived single-use human-readable activation code, security: [{ administratorToken: [] }], responses: { "200": { description: Activation code, API address, and expiry } } }
   /client/activate:
     post: { summary: Exchange an activation secret for an independent device token, security: [], responses: { "200": { description: Device identity and token } } }
   /client/session:
