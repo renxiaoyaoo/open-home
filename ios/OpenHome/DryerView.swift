@@ -148,7 +148,7 @@ struct DryerView: View {
     private func statusCard(_ value: DryerSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack { VStack(alignment: .leading, spacing: 3) { Text(value.name).font(.title3.bold()); Text(value.programName ?? "未选择程序").font(.subheadline).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: model.isLoading ? "arrow.triangle.2.circlepath" : "washer").font(.title2) }
-            HStack(alignment: .lastTextBaseline) { VStack(alignment: .leading, spacing: 4) { Text("当前状态").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(value.state.label).font(.title.bold()) }; Spacer(); VStack(alignment: .trailing, spacing: 4) { Text("剩余时间").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(clock(value.remainingMinutes)).font(.system(.largeTitle, design: .monospaced, weight: .semibold)).minimumScaleFactor(0.75).lineLimit(1) } }
+            HStack(alignment: .lastTextBaseline) { VStack(alignment: .leading, spacing: 4) { Text("当前状态").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(value.state.label).font(.title.bold()) }; Spacer(); VStack(alignment: .trailing, spacing: 4) { Text("剩余时间").font(.caption).foregroundStyle(.white.opacity(0.65)); digitalClock(value.remainingMinutes, blinking: value.state == .running || value.state == .paused || value.state == .scheduled).font(.system(.largeTitle, design: .monospaced, weight: .semibold)).minimumScaleFactor(0.75).lineLimit(1) } }
         }.padding(20).foregroundStyle(.white).background(Color.openHomeLiving, in: RoundedRectangle(cornerRadius: 18))
     }
     private func scheduleCard(_ value: DryerSnapshot) -> some View {
@@ -184,7 +184,14 @@ struct DryerView: View {
             Button { Task { await model.primaryAction() } } label: { Label(actionTitle(value.state), systemImage: actionSymbol(value.state)) }.buttonStyle(.borderedProminent).tint(value.state == .scheduled ? .red : value.state == .running ? .orange : .teal).disabled(model.isOperating || value.state == .off)
         }.frame(maxWidth: .infinity).controlSize(.large)
     }
-    private func clock(_ minutes: Int?) -> String { let value = max(0, minutes ?? 0); return String(format: "%02d:%02d", value / 60, value % 60) }
+    private func digitalClock(_ minutes: Int?, blinking: Bool) -> some View {
+        let value = max(0, minutes ?? 0); let hours = String(format: "%02d", value / 60); let remainder = String(format: "%02d", value % 60)
+        return TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            let bright = !blinking || Int(context.date.timeIntervalSince1970 * 2) % 2 == 0
+            HStack(spacing: 0) { Text(hours); Text(":").opacity(bright ? 1 : 0.18); Text(remainder) }
+                .accessibilityElement(children: .ignore).accessibilityLabel("\(hours) 小时 \(remainder) 分钟")
+        }
+    }
     private func actionTitle(_ state: DryerSnapshot.State) -> String { switch state { case .scheduled: "取消预约"; case .running: "暂停"; case .paused: "继续"; default: "启动" } }
     private func actionSymbol(_ state: DryerSnapshot.State) -> String { switch state { case .scheduled: "xmark"; case .running: "pause.fill"; default: "play.fill" } }
     private func programSymbol(_ icon: String) -> String { switch icon { case "large", "bedding": "bed.double.fill"; case "timed": "timer"; case "warm": "flame.fill"; case "fresh": "wind"; case "sport": "figure.run"; case "shirt": "tshirt.fill"; default: "sparkles" } }

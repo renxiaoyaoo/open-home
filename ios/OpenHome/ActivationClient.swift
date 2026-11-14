@@ -2,7 +2,7 @@ import Foundation
 
 struct ActivationClient: Sendable {
     struct Result: Sendable { let baseURL: URL; let deviceID: String; let deviceToken: String }
-    private struct Body: Encodable { let code: String; let deviceName: String }
+    private struct Body: Encodable { let code: String; let deviceName: String; let instanceID: String }
     private struct Response: Decodable { let ok: Bool; let data: DataValue?; let message: String? }
     private struct DataValue: Decodable { let deviceID: String; let deviceToken: String }
 
@@ -13,11 +13,20 @@ struct ActivationClient: Sendable {
         var request = URLRequest(url: baseURL.appending(path: "client/activate"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try JSONEncoder().encode(Body(code: normalized, deviceName: deviceName))
+        let identity = try installationIdentity()
+        request.httpBody = try JSONEncoder().encode(Body(code: normalized, deviceName: deviceName, instanceID: identity))
         let (responseData, urlResponse) = try await URLSession.shared.data(for: request)
         let response = try JSONDecoder().decode(Response.self, from: responseData)
         guard let http = urlResponse as? HTTPURLResponse, 200..<300 ~= http.statusCode, response.ok, let value = response.data else { throw ActivationError.rejected(response.message) }
         return .init(baseURL: baseURL, deviceID: value.deviceID, deviceToken: value.deviceToken)
+    }
+
+    private func installationIdentity(keychain: KeychainStore = KeychainStore()) throws -> String {
+        let account = "client.instance-id"
+        if let data = try keychain.read(account: account), let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil { return value }
+        let value = UUID().uuidString.lowercased()
+        try keychain.save(Data(value.utf8), account: account)
+        return value
     }
 }
 

@@ -22,4 +22,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .dialog-card { width: 100%; max-width: 340px; border: 1px solid #dedbd3; border-radius: 18px; background: #fbfaf7; padding: 20px; box-shadow: 0 24px 70px rgb(45 45 42 / .16); }
 .section-kicker { font-size: 11px; color: #858178; }
 .section-title { font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
+@keyframes clock-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .18; } }
+.clock-colon { display: inline-block; animation: clock-blink 1s steps(1, end) infinite; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }

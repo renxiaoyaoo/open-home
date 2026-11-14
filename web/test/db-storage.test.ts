@@ -80,3 +80,28 @@ test("consumes a human-readable activation once and authenticates the issued dev
   await assert.rejects(() => authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } })), /authorization failed/);
   await assert.rejects(() => activateClient(issued.activationCode, "Second iPhone"), /invalid or expired/);
 });
+
+test("reactivating the same client installation replaces its token without adding a duplicate", async () => {
+  const { activateClient, authenticateDevice, createActivation, listDevices } = await import("../lib/client-auth.ts");
+  const instanceID = "00000000-0000-4000-8000-000000000001";
+  const firstCode = await createActivation("https://home.example/api/v1", 10);
+  const first = await activateClient(firstCode.activationCode, "Test iPhone", instanceID);
+  const secondCode = await createActivation("https://home.example/api/v1", 10);
+  const second = await activateClient(secondCode.activationCode, "Renamed iPhone", instanceID);
+  assert.equal(second.deviceID, first.deviceID);
+  assert.deepEqual((await listDevices()).map(({ id, name }) => ({ id, name })), [{ id: first.deviceID, name: "Renamed iPhone" }]);
+  await assert.rejects(() => authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${first.deviceToken}` } })), /authorization failed/);
+  await authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${second.deviceToken}` } }));
+});
+
+test("uses the current deployment origin when a separate native API domain is not configured", async () => {
+  const previousURL = process.env.OPENHOME_PUBLIC_API_URL; const previousDomain = process.env.OPENHOME_CF_API_DOMAIN;
+  delete process.env.OPENHOME_PUBLIC_API_URL; delete process.env.OPENHOME_CF_API_DOMAIN;
+  try {
+    const { configuredPublicAPIURL } = await import("../lib/client-auth.ts");
+    assert.equal(configuredPublicAPIURL("https://home.example/manage"), "https://home.example/api/v1");
+  } finally {
+    if (previousURL === undefined) delete process.env.OPENHOME_PUBLIC_API_URL; else process.env.OPENHOME_PUBLIC_API_URL = previousURL;
+    if (previousDomain === undefined) delete process.env.OPENHOME_CF_API_DOMAIN; else process.env.OPENHOME_CF_API_DOMAIN = previousDomain;
+  }
+});

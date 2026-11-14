@@ -78,6 +78,13 @@
       "when": 1793788876781,
       "tag": "0010_milky_titania",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794679311917,
+      "tag": "0011_tiny_molten_man",
+      "breakpoints": true
     }
   ]
 }

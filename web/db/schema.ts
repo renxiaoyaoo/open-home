@@ -34,6 +34,7 @@ export const activationCodes = sqliteTable("activation_codes", {
 export const clientDevices = sqliteTable("client_devices", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  instanceHash: text("instance_hash").unique(),
   tokenHash: text("token_hash").notNull().unique(),
   createdAt: integer("created_at").notNull(),
   lastSeenAt: integer("last_seen_at").notNull(),

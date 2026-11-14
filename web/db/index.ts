@@ -26,6 +26,9 @@ async function createNodeDatabase(): Promise<Database> {
   const liveActivityColumns = sqlite.prepare("PRAGMA table_info(live_activities)").all() as Array<{ name: string }>;
   if (!liveActivityColumns.some(({ name }) => name === "last_state_hash")) sqlite.exec("ALTER TABLE live_activities ADD COLUMN last_state_hash TEXT;");
   if (!liveActivityColumns.some(({ name }) => name === "last_pushed_at")) sqlite.exec("ALTER TABLE live_activities ADD COLUMN last_pushed_at INTEGER;");
+  const clientDeviceColumns = sqlite.prepare("PRAGMA table_info(client_devices)").all() as Array<{ name: string }>;
+  if (!clientDeviceColumns.some(({ name }) => name === "instance_hash")) sqlite.exec("ALTER TABLE client_devices ADD COLUMN instance_hash TEXT;");
+  sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS client_devices_instance_hash_unique ON client_devices(instance_hash);");
   sqlite.exec("DROP INDEX IF EXISTS accounts_mobile_fingerprint; CREATE UNIQUE INDEX IF NOT EXISTS accounts_provider_mobile_fingerprint ON accounts(provider, mobile_fingerprint);");
   sqlite.exec(LEGACY_CLEANUP);
   return { prepare(sql) { const statement = sqlite.prepare(sql); let values: SqlValue[] = []; return { bind(...next) { values = next; return this; }, async first<T>() { return (statement.get(...values) as T | undefined) ?? null; }, async all<T>() { return { results: statement.all(...values) as T[] }; }, async run() { return statement.run(...values); } }; } };
@@ -36,7 +39,7 @@ CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, provider TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS sessions (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, encrypted_state TEXT NOT NULL, verified_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS provider_leases (account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, owner TEXT NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS activation_codes (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS client_devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, revoked_at INTEGER);
+CREATE TABLE IF NOT EXISTS client_devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, instance_hash TEXT UNIQUE, token_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, revoked_at INTEGER);
 CREATE TABLE IF NOT EXISTS live_activities (activity_id TEXT PRIMARY KEY, device_id TEXT NOT NULL REFERENCES client_devices(id) ON DELETE CASCADE, provider TEXT NOT NULL, resource_id TEXT NOT NULL, push_token TEXT NOT NULL, environment TEXT NOT NULL, last_state_hash TEXT, last_pushed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS live_activities_device_resource ON live_activities(device_id, provider, resource_id);
 `;

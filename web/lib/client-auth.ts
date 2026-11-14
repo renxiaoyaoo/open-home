@@ -14,10 +14,13 @@ function key() {
 function digest(purpose: string, value: string) { return createHmac("sha256", key()).update(`${purpose}:${value}`).digest("hex"); }
 function safeEqual(left: string, right: string) { const a = Buffer.from(left); const b = Buffer.from(right); return a.length === b.length && timingSafeEqual(a, b); }
 function deviceName(value: unknown) { const name = String(value || "").trim(); if (!name || name.length > 80) throw new Error("Device name is invalid"); return name; }
+function instanceIdentity(value: unknown) { const id = String(value || "").trim().toLowerCase(); if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error("Client instance is invalid"); return digest("client-instance", id); }
 function apiBaseURL(value: string) { const url = new URL(value); if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) throw new Error("Public API URL must use HTTPS"); return url.toString().replace(/\/$/, ""); }
-export function configuredPublicAPIURL() {
+export function configuredPublicAPIURL(requestURL?: string) {
   const value = process.env.OPENHOME_PUBLIC_API_URL || (process.env.OPENHOME_CF_API_DOMAIN ? `https://${process.env.OPENHOME_CF_API_DOMAIN}/api/v1` : "");
-  return apiBaseURL(value);
+  if (value) return apiBaseURL(value);
+  if (requestURL) return apiBaseURL(new URL("/api/v1", requestURL).toString());
+  throw new Error("Public API URL is not configured");
 }
 
 export function assertAdmin(request: Request) {
@@ -43,14 +46,17 @@ export async function createActivation(publicAPIURL: string, lifetimeMinutes = 1
   return { activationCode, activationURL: activationURL.toString(), activationQRCode: qr.createDataURL(4, 8), publicAPIURL: baseURL, expiresAt };
 }
 
-export async function activateClient(code: string, rawName: unknown) {
+export async function activateClient(code: string, rawName: unknown, rawInstanceID: unknown = randomUUID()) {
   const normalized = code.replace(/[\s-]/g, "").toUpperCase();
   if (!/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(normalized) && !/^[A-Za-z0-9_-]{32}$/.test(code)) throw new Error("Activation code is invalid");
   const db = await getDb(); const now = Date.now();
   const consumed = await db.prepare("DELETE FROM activation_codes WHERE secret_hash=? AND expires_at>=? RETURNING id").bind(digest("activation", normalized.length === 8 ? normalized : code), now).first<{ id: string }>();
   if (!consumed) throw new Error("Activation code is invalid or expired");
-  const id = randomUUID(); const secret = randomBytes(32).toString("base64url");
-  await db.prepare("INSERT INTO client_devices (id,name,token_hash,created_at,last_seen_at,revoked_at) VALUES (?,?,?,?,?,NULL)").bind(id, deviceName(rawName), digest("device", secret), now, now).run();
+  const name = deviceName(rawName); const instanceHash = instanceIdentity(rawInstanceID); const secret = randomBytes(32).toString("base64url");
+  const existing = await db.prepare("SELECT id FROM client_devices WHERE instance_hash=?").bind(instanceHash).first<{ id: string }>();
+  const id = existing?.id ?? randomUUID();
+  if (existing) await db.prepare("UPDATE client_devices SET name=?,token_hash=?,last_seen_at=?,revoked_at=NULL WHERE id=?").bind(name, digest("device", secret), now, id).run();
+  else await db.prepare("INSERT INTO client_devices (id,name,instance_hash,token_hash,created_at,last_seen_at,revoked_at) VALUES (?,?,?,?,?,?,NULL)").bind(id, name, instanceHash, digest("device", secret), now, now).run();
   return { deviceID: id, deviceToken: `${id}.${secret}` };
 }
 
