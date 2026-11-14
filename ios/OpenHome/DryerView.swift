@@ -17,6 +17,7 @@ final class DryerViewModel {
     private let provider: any DryerProvider
     private let liveStatus: LiveStatusManager
     private var activityID: String?
+    private var refreshInFlight = false
 
     var refreshInterval: Duration {
         switch snapshot?.state { case .running, .paused, .scheduled: return .seconds(5); default: return .seconds(30) }
@@ -25,7 +26,12 @@ final class DryerViewModel {
         if let programPresentation, programPresentation.value == snapshot?.programID { return programPresentation }
         return programs.first { $0.value == snapshot?.programID && ($0.group != "DIY" || snapshot?.programName == $0.name) }
     }
-    var visiblePrograms: [DryerProgram] { let values = programs.filter { $0.group == programGroup }; return showsAllPrograms || programGroup == "DIY" ? values : Array(values.prefix(4)) }
+    var visiblePrograms: [DryerProgram] {
+        let values = programs.filter { $0.group == programGroup }
+        guard !showsAllPrograms, programGroup != "DIY" else { return values }
+        let common = programGroup == "日常程序" ? [2, 43, 42, 26] : [6, 0, 14, 15]
+        return common.compactMap { id in values.first { $0.value == id } }
+    }
     var canChangeProgram: Bool {
         guard !isOperating else { return false }
         switch snapshot?.state { case .running, .scheduled: return false; default: return snapshot?.state != .off }
@@ -33,9 +39,11 @@ final class DryerViewModel {
 
     init(provider: any DryerProvider, registrar: (any LiveActivityRegistrar)? = nil) { self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar) }
 
-    func refresh() async {
-        guard !isLoading, !isOperating else { return }
-        isLoading = true; defer { isLoading = false }
+    func refresh(showLoading: Bool = true) async {
+        guard !refreshInFlight, !isOperating else { return }
+        refreshInFlight = true
+        if showLoading { isLoading = true }
+        defer { refreshInFlight = false; if showLoading { isLoading = false } }
         do { let value = try await provider.snapshot(); if value.programID != snapshot?.programID { programPresentation = nil }; snapshot = value; parameterValues = value.parameters; message = nil; await updateLiveStatus(value); if programs.isEmpty { programs = (try? await provider.programs()) ?? [] } }
         catch { message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
     }
@@ -119,11 +127,11 @@ struct DryerView: View {
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
-            if model.snapshot == nil { await model.refresh() }
+            await model.refresh(showLoading: model.snapshot == nil)
             while !Task.isCancelled {
                 try? await Task.sleep(for: model.refreshInterval)
                 guard !Task.isCancelled else { return }
-                await model.refresh()
+                await model.refresh(showLoading: false)
             }
         }
         .refreshable { await model.refresh() }
@@ -147,10 +155,10 @@ struct DryerView: View {
         VStack(spacing: 10) {
             HStack { Label("预约", systemImage: "calendar.badge.clock").font(.headline); Spacer(); Text(model.selectedProgram?.name ?? "请选择程序").font(.caption).foregroundStyle(.secondary) }
             HStack(spacing: 8) {
-                VStack(alignment: .leading) { Text("开始").font(.caption2).foregroundStyle(.secondary); DatePicker("开始", selection: $model.scheduledStart, displayedComponents: .hourAndMinute).labelsHidden() }.frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading) { Text("开始").font(.caption2).foregroundStyle(.secondary); DatePicker("开始", selection: $model.scheduledStart, displayedComponents: .hourAndMinute).labelsHidden().disabled(value.state == .scheduled || value.state == .running) }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading) { Text("预计完成").font(.caption2).foregroundStyle(.secondary); Text(model.expectedFinish(for: model.selectedProgram)?.formatted(date: .omitted, time: .shortened) ?? "—").font(.headline.monospacedDigit()) }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button(value.state == .scheduled ? "取消预约" : "确认预约") { Task { if value.state == .scheduled { await model.primaryAction() } else { await model.schedule() } } }.buttonStyle(.borderedProminent).tint(value.state == .scheduled ? .red : .openHomeLiving).disabled(model.isOperating || (value.state != .scheduled && (model.selectedProgram == nil || value.state == .running || value.state == .off)))
+            Button(value.state == .scheduled ? "已预约" : "确认预约") { Task { await model.schedule() } }.buttonStyle(.borderedProminent).tint(.openHomeLiving).disabled(model.isOperating || value.state == .scheduled || model.selectedProgram == nil || value.state == .running || value.state == .off)
         }.padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
     }
     private var programCard: some View {

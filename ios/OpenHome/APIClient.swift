@@ -267,9 +267,36 @@ private enum DryerWire {
         let properties: [Property]?
         let data: NestedStatus?
         let openHomeParameters: [String: Int]?
-        var values: [String: JSONScalar] { Dictionary(uniqueKeysWithValues: (properties ?? data?.properties ?? []).compactMap { property in property.code.map { ($0, property.value) } }) }
+        let flatValues: [String: JSONScalar]
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+            properties = try container.decodeIfPresent([Property].self, forKey: .init("properties"))
+            data = try container.decodeIfPresent(NestedStatus.self, forKey: .init("data"))
+            openHomeParameters = try container.decodeIfPresent([String: Int].self, forKey: .init("openHomeParameters"))
+            flatValues = try Dictionary(uniqueKeysWithValues: container.allKeys.compactMap { key in
+                guard key.stringValue.hasPrefix("dryer."), let value = try container.decodeIfPresent(JSONScalar.self, forKey: key) else { return nil }
+                return (key.stringValue, value)
+            })
+        }
+        var values: [String: JSONScalar] {
+            let listed = Dictionary(uniqueKeysWithValues: (properties ?? data?.properties ?? []).compactMap { property in property.code.map { ($0, property.value) } })
+            if !listed.isEmpty { return listed }
+            if let nested = data?.flatValues, !nested.isEmpty { return nested }
+            return flatValues
+        }
     }
-    struct NestedStatus: Decodable, Sendable { let properties: [Property]? }
+    struct NestedStatus: Decodable, Sendable {
+        let properties: [Property]?
+        let flatValues: [String: JSONScalar]
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+            properties = try container.decodeIfPresent([Property].self, forKey: .init("properties"))
+            flatValues = try Dictionary(uniqueKeysWithValues: container.allKeys.compactMap { key in
+                guard key.stringValue.hasPrefix("dryer."), let value = try container.decodeIfPresent(JSONScalar.self, forKey: key) else { return nil }
+                return (key.stringValue, value)
+            })
+        }
+    }
     struct Property: Decodable, Sendable {
         let code: String?
         let value: JSONScalar
@@ -277,6 +304,14 @@ private enum DryerWire {
         init(from decoder: Decoder) throws { let container = try decoder.container(keyedBy: CodingKeys.self); code = try container.decodeIfPresent(String.self, forKey: .code) ?? container.decodeIfPresent(String.self, forKey: .propertyCode); value = try container.decode(JSONScalar.self, forKey: .value) }
     }
     static let programs = [2: "混合", 43: "大件烘", 42: "小件烘", 26: "定时烘", 11: "热风暖衣", 39: "空气洗", 17: "快烘", 10: "冷风清新", 83: "除菌除螨", 28: "支架烘", 45: "晒被子", 8: "羊毛", 6: "羽绒服", 0: "棉麻", 14: "婴儿服", 15: "衬衫", 22: "浴巾", 44: "羊毛护理", 13: "内衣", 12: "运动服", 3: "牛仔"]
+}
+
+private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int? = nil
+    init(_ stringValue: String) { self.stringValue = stringValue }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
 }
 
 private enum StringOrNumber: Decodable, Sendable, CustomStringConvertible {
@@ -324,7 +359,7 @@ actor RemoteVehicleProvider: VehicleProvider {
 
     func detail() async throws -> VehicleDetailSnapshot {
         if vehicle == nil { _ = try await snapshot() }
-        if let initialDetail { self.initialDetail = nil; return initialDetail }
+        initialDetail = nil
         guard let vehicle else { throw ProviderError.invalidResponse }
         let response: Envelope<VehicleWire.Snapshot> = try await client.get("auto/summary", query: [.init(name: "vehicleId", value: vehicle.id)])
         return .init(summary: normalize(response.data.summary, fallback: vehicle), energy: response.data.energy)
@@ -347,7 +382,7 @@ actor RemoteVehicleProvider: VehicleProvider {
         else if value.powerState == "on", (value.speedKph ?? 0) > 0 { state = .driving }
         else if value.powerState == "on" { state = .ready }
         else { state = .parked }
-        return .init(vehicleID: value.id, name: value.name.isEmpty ? fallback.name : value.name, state: state, speedKPH: value.speedKph, totalRangeKM: value.estimatedRangeKm, batteryPercent: value.tractionBatteryPercent, fuelPercent: value.fuelPercent, electricRangeKM: value.electricRangeKm, fuelRangeKM: value.fuelRangeKm, odometerKM: value.odometerKm, evMileageKM: value.evMileageKm, hevMileageKM: value.hevMileageKm, cabinTemperatureC: value.cabinTemperatureC, locationName: value.locationName, signalStrength: value.signalStrength, online: value.online, securityState: value.securityState, driveMode: value.driveMode, okIndicator: value.okIndicator, powerOutputKW: value.powerOutputKw, engineCoolantC: value.engineCoolantC, health: value.health, doorsOpen: value.doorsOpen, doorsUnlocked: value.doorsUnlocked, windowsOpen: value.windowsOpen, hoodOpen: value.hoodOpen, trunkOpen: value.trunkOpen, skylightOpen: value.skylightOpen, tirePressureKPA: value.tirePressureKpa, chargingPowerKW: value.chargingPowerKw, remainingChargeMinutes: value.remainingChargeMinutes, updatedAt: value.updatedAt.flatMap(VehicleWire.date))
+        return .init(vehicleID: value.id, name: value.name.isEmpty ? fallback.name : value.name, state: state, chargingState: value.chargingState, speedKPH: value.speedKph, totalRangeKM: value.estimatedRangeKm, batteryPercent: value.tractionBatteryPercent, fuelPercent: value.fuelPercent, electricRangeKM: value.electricRangeKm, fuelRangeKM: value.fuelRangeKm, odometerKM: value.odometerKm, evMileageKM: value.evMileageKm, hevMileageKM: value.hevMileageKm, cabinTemperatureC: value.cabinTemperatureC, locationName: value.locationName, signalStrength: value.signalStrength, online: value.online, securityState: value.securityState, driveMode: value.driveMode, okIndicator: value.okIndicator, powerOutputKW: value.powerOutputKw, engineCoolantC: value.engineCoolantC, health: value.health, doorsOpen: value.doorsOpen, doorsUnlocked: value.doorsUnlocked, windowsOpen: value.windowsOpen, hoodOpen: value.hoodOpen, trunkOpen: value.trunkOpen, skylightOpen: value.skylightOpen, tirePressureKPA: value.tirePressureKpa, chargingPowerKW: value.chargingPowerKw, remainingChargeMinutes: value.remainingChargeMinutes, updatedAt: value.updatedAt.flatMap(VehicleWire.date))
     }
 }
 

@@ -154,6 +154,7 @@ struct VehicleSnapshot: Codable, Sendable, Equatable {
     let vehicleID: String
     let name: String
     let state: State
+    let chargingState: String?
     let speedKPH: Double?
     let totalRangeKM: Double?
     let batteryPercent: Double?

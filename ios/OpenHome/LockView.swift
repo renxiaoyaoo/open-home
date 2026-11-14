@@ -67,6 +67,7 @@ struct LockView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack { VStack(alignment: .leading, spacing: 3) { Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.bold()); Text(detail.wifiName ?? "Wi‑Fi").font(.caption).foregroundStyle(.white.opacity(0.7)) }; Spacer(); if model.devices.count > 1 { Menu { ForEach(model.devices) { device in Button(device.name) { Task { await model.select(device.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") } } }
             HStack(spacing: 10) { metric("门锁", detail.battery.map { "\($0)%" } ?? "—", "battery.75percent"); metric("猫眼", detail.cameraBattery.map { "\($0)%" } ?? "—", "camera"); metric("信号", detail.wifiSignal ?? "—", "wifi") }
+            if let updated = detail.batteryUpdatedAt { Text("更新于 \(displayTime(updated))").font(.caption2).foregroundStyle(.white.opacity(0.55)).frame(maxWidth: .infinity, alignment: .trailing) }
         }.padding(18).foregroundStyle(.white).background(Color.openHomeLock, in: RoundedRectangle(cornerRadius: 18))
     }
     private var passwordCard: some View {
@@ -94,7 +95,7 @@ struct LockView: View {
     private var captureGrid: some View {
         VStack(spacing: 10) {
             if model.captures.isEmpty { Text("暂无抓拍").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 90) }
-            else { LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 10) { ForEach(model.captures) { capture in Button { viewer = capture.video.map(Viewer.video) ?? .image(capture.image) } label: { VStack(alignment: .leading, spacing: 5) { ZStack { captureImage(capture.image); if capture.video != nil { Image(systemName: "play.fill").font(.headline).foregroundStyle(.white).padding(9).background(.black.opacity(0.55), in: Circle()) } }.aspectRatio(4 / 3, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10)); Text(displayTime(capture.time)).font(.caption2).foregroundStyle(.secondary).lineLimit(1) } }.buttonStyle(.plain) } } }
+            else { LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 10) { ForEach(model.captures) { capture in Button { viewer = capture.video.map(Viewer.video) ?? .image(capture.image) } label: { VStack(alignment: .leading, spacing: 5) { ZStack { captureImage(capture.image); if capture.video != nil { Image(systemName: "play.fill").font(.headline).foregroundStyle(.white).padding(9).background(.black.opacity(0.55), in: Circle()) } }.aspectRatio(4 / 3, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10)); Text(capture.video == nil ? "照片" : "视频").font(.caption.bold()).foregroundStyle(.primary); Text(displayTime(capture.time)).font(.caption2).foregroundStyle(.secondary).lineLimit(1) } }.buttonStyle(.plain) } } }
             if let cursor = model.captureCursor { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: cursor) { await model.loadMoreCaptures() } }
         }
     }
