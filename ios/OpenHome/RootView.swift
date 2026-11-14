@@ -156,8 +156,10 @@ private struct ConnectionSetupView: View {
                     Image(systemName: mode == .center ? "house.and.flag" : "iphone.gen3").font(.title2).foregroundStyle(Color.openHomeAccent)
                     Text(mode == .center ? "连接自己的 OpenHome" : "直接连接设备服务").font(.title2.bold())
                     if mode == .center {
-                        TextField("OpenHome 地址", text: $centerAddress)
-                            .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                        if defaultCenterURL == nil {
+                            TextField("OpenHome 地址", text: $centerAddress)
+                                .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                        }
                         TextField("激活码", text: $activationCode)
                             .textInputAutocapitalization(.characters).autocorrectionDisabled().textFieldStyle(.roundedBorder)
                             .font(.system(.title3, design: .monospaced).weight(.semibold))
@@ -193,7 +195,7 @@ private struct ConnectionSetupView: View {
         isActivating = true; errorMessage = nil
         defer { isActivating = false }
         do {
-            guard let baseURL = normalizedCenterURL(centerAddress) else { throw ActivationError.invalidAddress }
+            guard let baseURL = defaultCenterURL ?? normalizedCenterURL(centerAddress) else { throw ActivationError.invalidAddress }
             let result = try await ActivationClient().activate(baseURL: baseURL, code: activationCode, deviceName: "iPhone")
             model.connection = try ConnectionStore().saveCenter(result)
             await model.validateCenter()
@@ -213,6 +215,12 @@ private struct ConnectionSetupView: View {
         if path.isEmpty { components.path = "/api/v1" }
         else if path != "api/v1" && !path.hasSuffix("/api/v1") { components.path += "/api/v1" }
         return components.url
+    }
+
+    private var defaultCenterURL: URL? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "OpenHomeDefaultAPIURL") as? String,
+              !value.isEmpty, !value.contains("$("), let url = normalizedCenterURL(value) else { return nil }
+        return url
     }
 }
 

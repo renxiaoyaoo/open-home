@@ -12,8 +12,10 @@ renders normalized dryer and vehicle state on the Lock Screen and Dynamic
 Island. Center mode registers ActivityKit push tokens through the portable API;
 direct mode refreshes state while the app has permitted execution time.
 
-An activation code is short-lived and single-use. The app remembers the center
-address separately so the code remains readable and the client stays portable.
+An activation code is short-lived and single-use. A deployment can inject
+`OPENHOME_DEFAULT_API_URL` at build time so users enter only the code; a generic
+build asks for and remembers the center address separately. The address stays
+out of public source and the client remains portable.
 Native traffic reaches a non-interactive API origin protected by the
 issued device bearer token. The Web origin may remain behind an identity proxy;
 the server accepts its configured trusted identity header. These can be two
