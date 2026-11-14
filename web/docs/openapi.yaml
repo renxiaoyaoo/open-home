@@ -7,12 +7,15 @@ servers: [{ url: "https://your-open-home.example/api/v1" }]
 security: [{ deviceToken: [] }, { accessBoundary: [] }]
 paths:
   /client/activation-codes:
-    post: { summary: Create a short-lived single-use human-readable activation code, security: [{ administratorToken: [] }], responses: { "200": { description: Activation code, API address, and expiry } } }
+    post: { summary: Create a short-lived single-use activation link and human-readable code, security: [{ administratorToken: [] }], responses: { "200": { description: Activation link, code, API address, and expiry } } }
   /client/activate:
     post: { summary: Exchange an activation secret for an independent device token, security: [], responses: { "200": { description: Device identity and token } } }
   /client/session:
     get: { summary: Validate the current OpenHome client device session, security: [{ deviceToken: [] }], responses: { "200": { description: Active device session } } }
     delete: { summary: Revoke the current OpenHome client device token, security: [{ deviceToken: [] }], responses: { "200": { description: Device revoked } } }
+  /client/devices:
+    get: { summary: List connected clients from the protected Web management page, security: [{ accessBoundary: [] }], responses: { "200": { description: Connected clients } } }
+    delete: { summary: Revoke a connected client from the protected Web management page, security: [{ accessBoundary: [] }], responses: { "200": { description: Revoked client } } }
   /live-activities:
     post: { summary: Register an ActivityKit update token for a live dryer or vehicle, security: [{ deviceToken: [] }], responses: { "200": { description: Registered } } }
     delete: { summary: Remove an ended ActivityKit registration, security: [{ deviceToken: [] }], responses: { "200": { description: Removed } } }

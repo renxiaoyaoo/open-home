@@ -16,7 +16,6 @@
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "activation:create": "node scripts/create-activation.mjs",
     "live-activities:refresh": "node scripts/refresh-live-activities.mjs"
   },
   "dependencies": {
@@ -24,6 +23,7 @@
     "hls.js": "1.7.4",
     "lucide-react": "^1.31.0",
     "next": "16.3.4",
+    "qrcode-generator": "1.4.4",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

@@ -1,4 +1,5 @@
 import SwiftUI
+import VisionKit
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
@@ -143,6 +144,8 @@ private struct ConnectionSetupView: View {
     @State private var isActivating = false
     @State private var errorMessage: String?
     @State private var directProviders: Set<ProviderID> = []
+    @State private var showingScanner = false
+    @State private var showingManualActivation = false
 
     var body: some View {
         ScrollView {
@@ -156,15 +159,26 @@ private struct ConnectionSetupView: View {
                     Image(systemName: mode == .center ? "house.and.flag" : "iphone.gen3").font(.title2).foregroundStyle(Color.openHomeAccent)
                     Text(mode == .center ? "连接自己的 OpenHome" : "直接连接设备服务").font(.title2.bold())
                     if mode == .center {
-                        if defaultCenterURL == nil {
+                        Button {
+                            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable { showingScanner = true }
+                            else { errorMessage = "此设备当前无法使用相机扫描" }
+                        } label: {
+                            Label("扫描激活二维码", systemImage: "qrcode.viewfinder")
+                        }
+                        .buttonStyle(OpenHomePrimaryButton())
+                        Button(showingManualActivation ? "收起手动连接" : "手动连接", systemImage: showingManualActivation ? "chevron.up" : "keyboard") {
+                            showingManualActivation.toggle()
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        if showingManualActivation {
                             TextField("OpenHome 地址", text: $centerAddress)
                                 .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                            TextField("激活码", text: $activationCode)
+                                .textInputAutocapitalization(.characters).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                                .font(.system(.title3, design: .monospaced).weight(.semibold))
+                                .onChange(of: activationCode) { _, value in activationCode = formattedActivationCode(value) }
+                            Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.count != 9 || isActivating)
                         }
-                        TextField("激活码", text: $activationCode)
-                            .textInputAutocapitalization(.characters).autocorrectionDisabled().textFieldStyle(.roundedBorder)
-                            .font(.system(.title3, design: .monospaced).weight(.semibold))
-                            .onChange(of: activationCode) { _, value in activationCode = formattedActivationCode(value) }
-                        Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.isEmpty || isActivating)
                         if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
                     } else {
                         if model.directProviders.installed.isEmpty {
@@ -188,6 +202,19 @@ private struct ConnectionSetupView: View {
             }.padding(14).frame(maxWidth: 520)
         }
         .onAppear { directProviders = model.directProviders.installed }
+        .onOpenURL { url in Task { await activate(url: url) } }
+        .sheet(isPresented: $showingScanner) {
+            ZStack(alignment: .topTrailing) {
+                ActivationScannerView { value in
+                    showingScanner = false
+                    Task { await activate(scannedValue: value) }
+                }
+                Button { showingScanner = false } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.black.opacity(0.65)).padding()
+                    .accessibilityLabel("关闭扫描")
+            }
+            .ignoresSafeArea()
+        }
     }
 
     @MainActor
@@ -195,12 +222,27 @@ private struct ConnectionSetupView: View {
         isActivating = true; errorMessage = nil
         defer { isActivating = false }
         do {
-            guard let baseURL = defaultCenterURL ?? normalizedCenterURL(centerAddress) else { throw ActivationError.invalidAddress }
+            guard let baseURL = normalizedCenterURL(centerAddress) else { throw ActivationError.invalidAddress }
             let result = try await ActivationClient().activate(baseURL: baseURL, code: activationCode, deviceName: "iPhone")
             model.connection = try ConnectionStore().saveCenter(result)
             await model.validateCenter()
             activationCode = ""
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    @MainActor private func activate(scannedValue: String) async {
+        if let url = URL(string: scannedValue), url.scheme == "openhome" { await activate(url: url); return }
+        activationCode = formattedActivationCode(scannedValue)
+        showingManualActivation = true
+    }
+
+    @MainActor private func activate(url: URL) async {
+        guard let values = URLComponents(url: url, resolvingAgainstBaseURL: false), url.scheme == "openhome", url.host == "activate",
+              let address = values.queryItems?.first(where: { $0.name == "server" })?.value,
+              let code = values.queryItems?.first(where: { $0.name == "code" })?.value else { errorMessage = "无法识别激活链接"; return }
+        centerAddress = address
+        activationCode = formattedActivationCode(code)
+        await activate()
     }
 
     private func formattedActivationCode(_ value: String) -> String {
@@ -217,10 +259,32 @@ private struct ConnectionSetupView: View {
         return components.url
     }
 
-    private var defaultCenterURL: URL? {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "OpenHomeDefaultAPIURL") as? String,
-              !value.isEmpty, !value.contains("$("), let url = normalizedCenterURL(value) else { return nil }
-        return url
+}
+
+private struct ActivationScannerView: UIViewControllerRepresentable {
+    let onRecognized: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onRecognized: onRecognized) }
+    func makeUIViewController(context: Context) -> DataScannerViewController {
+        let controller = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])], recognizesMultipleItems: false)
+        controller.delegate = context.coordinator
+        try? controller.startScanning()
+        return controller
+    }
+    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        let onRecognized: (String) -> Void
+        private var completed = false
+        init(onRecognized: @escaping (String) -> Void) { self.onRecognized = onRecognized }
+        func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
+            guard !completed else { return }
+            for item in addedItems {
+                if case .barcode(let barcode) = item, let value = barcode.payloadStringValue {
+                    completed = true; dataScanner.stopScanning(); onRecognized(value); return
+                }
+            }
+        }
     }
 }
 

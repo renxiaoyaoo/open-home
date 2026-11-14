@@ -17,15 +17,12 @@ Cloudflare refreshes registered Live Activities once per minute. On Node, run `n
 For a private Web deployment, an identity proxy may protect the Web hostname and
 set the header named by `OPENHOME_BROWSER_IDENTITY_HEADER`. Native clients use a
 second, non-interactive API hostname routed to the same application and database;
-its application routes validate revocable OpenHome device bearer tokens. Create
-a ten-minute single-use activation code with `npm run activation:create`.
-The Cloudflare adapter derives the `/api/v1/` base from `OPENHOME_CF_API_DOMAIN`;
-other adapters set `OPENHOME_PUBLIC_API_URL` explicitly for activation and
-scheduled refresh commands. Never point native activation at the
+its application routes validate revocable OpenHome device bearer tokens. The
+Web management page creates ten-minute single-use activation links and fallback
+codes. The Cloudflare adapter derives the `/api/v1/` base from
+`OPENHOME_CF_API_DOMAIN`; other adapters set `OPENHOME_PUBLIC_API_URL`
+explicitly. Never point native activation at the
 identity-protected Web hostname.
-The command derives its administrator proof from the recoverable session key,
-so no additional long-lived secret is required or printed.
-
 Live Activity state is refreshed through the authenticated, platform-neutral
 `POST /api/v1/live-activities/refresh` contract. Run `npm run
 live-activities:refresh` from any trusted scheduler with the deployment's

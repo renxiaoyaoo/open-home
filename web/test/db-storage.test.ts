@@ -32,15 +32,21 @@ test("center storage contains provider sessions and client device identities", a
 });
 
 test("consumes a human-readable activation once and authenticates the issued device", async () => {
-  const { activateClient, authenticateDevice, createActivation, revokeDevice } = await import("../lib/client-auth.ts");
+  const { activateClient, authenticateDevice, createActivation, listDevices, revokeDevice } = await import("../lib/client-auth.ts");
   const issued = await createActivation("https://home.example/api/v1", 10);
   assert.match(issued.activationCode, /^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
   assert.equal(issued.publicAPIURL, "https://home.example/api/v1");
+  const activationURL = new URL(issued.activationURL);
+  assert.equal(activationURL.protocol, "openhome:");
+  assert.equal(activationURL.searchParams.get("server"), issued.publicAPIURL);
+  assert.equal(activationURL.searchParams.get("code"), issued.activationCode);
+  assert.match(issued.activationQRCode, /^data:image\/gif;base64,/);
   const device = await activateClient(issued.activationCode.toLowerCase(), "Test iPhone");
   const authenticated = await authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } }));
   assert.equal(authenticated.deviceID, device.deviceID);
   assert.equal(authenticated.deviceName, "Test iPhone");
   assert.equal(typeof authenticated.createdAt, "number");
+  assert.deepEqual((await listDevices()).map(({ id, name }) => ({ id, name })), [{ id: device.deviceID, name: "Test iPhone" }]);
   const { liveActivityTargets, registerLiveActivity, unregisterLiveActivity } = await import("../lib/live-activities.ts");
   const token = "ab".repeat(32);
   await registerLiveActivity(device.deviceID, { activityId: "activity-1", provider: "living", resourceId: "dryer-1", pushToken: token, environment: "sandbox" });
@@ -61,6 +67,7 @@ test("consumes a human-readable activation once and authenticates the issued dev
   const { refreshLiveActivities } = await import("../lib/live-activity-refresh.ts");
   assert.deepEqual(await refreshLiveActivities(), []);
   await revokeDevice(device.deviceID);
+  assert.deepEqual(await listDevices(), []);
   await assert.rejects(() => authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${device.deviceToken}` } })), /authorization failed/);
   await assert.rejects(() => activateClient(issued.activationCode, "Second iPhone"), /invalid or expired/);
 });

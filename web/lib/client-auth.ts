@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import createQRCode from "qrcode-generator";
 import { getDb } from "../db/index.ts";
 
 const ACTIVATION_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -14,6 +15,10 @@ function digest(purpose: string, value: string) { return createHmac("sha256", ke
 function safeEqual(left: string, right: string) { const a = Buffer.from(left); const b = Buffer.from(right); return a.length === b.length && timingSafeEqual(a, b); }
 function deviceName(value: unknown) { const name = String(value || "").trim(); if (!name || name.length > 80) throw new Error("Device name is invalid"); return name; }
 function apiBaseURL(value: string) { const url = new URL(value); if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) throw new Error("Public API URL must use HTTPS"); return url.toString().replace(/\/$/, ""); }
+export function configuredPublicAPIURL() {
+  const value = process.env.OPENHOME_PUBLIC_API_URL || (process.env.OPENHOME_CF_API_DOMAIN ? `https://${process.env.OPENHOME_CF_API_DOMAIN}/api/v1` : "");
+  return apiBaseURL(value);
+}
 
 export function assertAdmin(request: Request) {
   const expected = digest("admin", "activation-issuer");
@@ -28,7 +33,14 @@ export async function createActivation(publicAPIURL: string, lifetimeMinutes = 1
   const now = Date.now();
   const expiresAt = now + Math.min(Math.max(lifetimeMinutes, 1), 60) * 60_000;
   await (await getDb()).prepare("INSERT INTO activation_codes (id,secret_hash,expires_at,created_at) VALUES (?,?,?,?)").bind(randomUUID(), digest("activation", secret), expiresAt, now).run();
-  return { activationCode: `${secret.slice(0, 4)}-${secret.slice(4)}`, publicAPIURL: baseURL, expiresAt };
+  const activationCode = `${secret.slice(0, 4)}-${secret.slice(4)}`;
+  const activationURL = new URL("openhome://activate");
+  activationURL.searchParams.set("server", baseURL);
+  activationURL.searchParams.set("code", activationCode);
+  const qr = createQRCode(0, "M");
+  qr.addData(activationURL.toString());
+  qr.make();
+  return { activationCode, activationURL: activationURL.toString(), activationQRCode: qr.createDataURL(4, 8), publicAPIURL: baseURL, expiresAt };
 }
 
 export async function activateClient(code: string, rawName: unknown) {
@@ -56,4 +68,9 @@ export async function revokeDevice(deviceID: string) {
   const revoked = await (await getDb()).prepare("UPDATE client_devices SET revoked_at=? WHERE id=? AND revoked_at IS NULL RETURNING id").bind(Date.now(), deviceID).first<{ id: string }>();
   if (!revoked) throw new ClientAuthorizationError("Device authorization failed");
   return { deviceID };
+}
+
+export async function listDevices() {
+  const rows = await (await getDb()).prepare("SELECT id,name,created_at AS createdAt,last_seen_at AS lastSeenAt FROM client_devices WHERE revoked_at IS NULL ORDER BY last_seen_at DESC").all<{ id: string; name: string; createdAt: number; lastSeenAt: number }>();
+  return rows.results;
 }
