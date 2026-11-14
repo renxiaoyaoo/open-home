@@ -74,11 +74,11 @@ struct LockView: View {
             Image(systemName: "key.fill").frame(width: 42, height: 42).background(Color.openHomeLock.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) { Text("一次性临时密码").font(.caption).foregroundStyle(.secondary); if let value = model.temporaryPassword { Text(value.password).font(.system(.title3, design: .monospaced, weight: .semibold)).tracking(2); Text("有效至 \(value.expiresAt.formatted(date: .omitted, time: .shortened)) · 已复制").font(.caption2).foregroundStyle(.secondary) } else { Text("30 分钟内有效").font(.subheadline.weight(.medium)) } }
             Spacer(); Button(model.temporaryPassword == nil ? "查看密码" : "重新生成") { Task { await model.createPassword() } }.buttonStyle(.borderedProminent).tint(.openHomeLock).disabled(model.isCreatingPassword)
-        }.frame(minHeight: 76).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16))
+        }.frame(minHeight: 76).padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
     }
     private var recordsCard: some View {
         VStack(spacing: 12) { Picker("内容", selection: $page) { ForEach(Page.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented); if page == .security { securityRecords } else { captureGrid }; if let message = model.message { Text(message).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) } }
-            .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16))
+            .padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
     }
     private var securityRecords: some View {
         VStack(spacing: 10) {

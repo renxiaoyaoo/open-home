@@ -226,7 +226,7 @@ private struct ConnectionSetupView: View {
                         }
                     }
                 }
-                .padding(20).background(.white, in: RoundedRectangle(cornerRadius: 18))
+                .padding(20).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 18))
             }.padding(14).frame(maxWidth: 520)
         }
         .onAppear { directProviders = model.directProviders.installed }
@@ -385,7 +385,7 @@ private struct DirectLoginView: View {
                 }
                 Button(isBusy ? "正在登录…" : "登录") { Task { await signIn() } }.buttonStyle(OpenHomePrimaryButton()).disabled(account.isEmpty || secret.isEmpty || isBusy)
                 if let message { Text(message).font(.caption).foregroundStyle(.red) }
-            }.padding(20).background(.white, in: RoundedRectangle(cornerRadius: 18)).padding(14).frame(maxWidth: 520)
+            }.padding(20).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 18)).padding(14).frame(maxWidth: 520)
         }
     }
 
@@ -424,6 +424,11 @@ private struct OpenHomePrimaryButton: ButtonStyle {
 }
 
 extension Color {
-    static let openHomeBackground = Color(red: 0.961, green: 0.957, blue: 0.937)
-    static let openHomeAccent = Color(red: 0.286, green: 0.420, blue: 0.443)
+    static let openHomeBackground = Color(uiColor: .systemGroupedBackground)
+    static let openHomeSurface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let openHomeAccent = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.455, green: 0.667, blue: 0.702, alpha: 1)
+            : UIColor(red: 0.286, green: 0.420, blue: 0.443, alpha: 1)
+    })
 }

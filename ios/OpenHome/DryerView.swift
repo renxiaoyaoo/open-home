@@ -132,7 +132,7 @@ struct DryerView: View {
     private func statusCard(_ value: DryerSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack { VStack(alignment: .leading, spacing: 3) { Text(value.name).font(.title3.bold()); Text(value.programName ?? "未选择程序").font(.subheadline).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: model.isLoading ? "arrow.triangle.2.circlepath" : "washer").font(.title2) }
-            HStack(alignment: .lastTextBaseline) { VStack(alignment: .leading, spacing: 4) { Text("当前状态").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(value.state.label).font(.system(size: 30, weight: .semibold)) }; Spacer(); VStack(alignment: .trailing, spacing: 4) { Text("剩余时间").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(clock(value.remainingMinutes)).font(.system(size: 34, weight: .semibold, design: .monospaced)) } }
+            HStack(alignment: .lastTextBaseline) { VStack(alignment: .leading, spacing: 4) { Text("当前状态").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(value.state.label).font(.title.bold()) }; Spacer(); VStack(alignment: .trailing, spacing: 4) { Text("剩余时间").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(clock(value.remainingMinutes)).font(.system(.largeTitle, design: .monospaced, weight: .semibold)).minimumScaleFactor(0.75).lineLimit(1) } }
         }.padding(20).foregroundStyle(.white).background(Color.openHomeLiving, in: RoundedRectangle(cornerRadius: 18))
     }
     private func scheduleCard(_ value: DryerSnapshot) -> some View {
@@ -143,7 +143,7 @@ struct DryerView: View {
                 VStack(alignment: .leading) { Text("预计完成").font(.caption2).foregroundStyle(.secondary); Text(model.expectedFinish(for: model.selectedProgram)?.formatted(date: .omitted, time: .shortened) ?? "—").font(.headline.monospacedDigit()) }.frame(maxWidth: .infinity, alignment: .leading)
             }
             Button(value.state == .scheduled ? "取消预约" : "确认预约") { Task { if value.state == .scheduled { await model.primaryAction() } else { await model.schedule() } } }.buttonStyle(.borderedProminent).tint(value.state == .scheduled ? .red : .openHomeLiving).disabled(model.isOperating || (value.state != .scheduled && (model.selectedProgram == nil || value.state == .running || value.state == .off)))
-        }.padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16))
+        }.padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
     }
     private var programCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -160,7 +160,7 @@ struct DryerView: View {
                     HStack { VStack(alignment: .leading, spacing: 2) { Text(selected.name).font(.subheadline.bold()); if let description = selected.description { Text(description).font(.caption2).foregroundStyle(.secondary).lineLimit(2) } }; Spacer(); Text("参数设置").font(.caption.bold()).foregroundStyle(Color.openHomeLiving); Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary) }.padding(12).background(Color.openHomeLiving.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                 }.buttonStyle(.plain)
             }
-        }.padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16))
+        }.padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
     }
     private func controlCard(_ value: DryerSnapshot) -> some View {
         HStack(spacing: 10) {

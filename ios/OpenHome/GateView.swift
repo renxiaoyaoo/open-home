@@ -105,7 +105,7 @@ struct GateView: View {
                 if let value = model.passwords[resource.id] {
                     VStack(spacing: 3) { Text(value.password).font(.system(.title3, design: .monospaced).weight(.bold)).tracking(2); Text(value.validUntil, style: .timer).font(.caption2.monospacedDigit()) }
                 } else { VStack(spacing: 4) { Image(systemName: "key"); Text("查看密码").font(.caption.bold()) } }
-            }.frame(width: 108).frame(minHeight: 76).background(.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 14)).buttonStyle(.plain)
+            }.frame(width: 108).frame(minHeight: 76).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 14)).buttonStyle(.plain)
         }.padding(10).background(Color.openHomeGate.opacity(0.10), in: RoundedRectangle(cornerRadius: 18)).disabled(model.busyID != nil)
     }
 
