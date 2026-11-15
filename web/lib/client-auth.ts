@@ -44,13 +44,14 @@ export async function createActivation(publicAPIURL: string, lifetimeMinutes = 1
   const qr = createQRCode(0, "M");
   qr.addData(activationURL.toString());
   qr.make();
-  return { activationID, activationCode, activationURL: activationURL.toString(), activationQRCode: qr.createDataURL(4, 8), publicAPIURL: baseURL, expiresAt };
+  return { activationID, activationCode, activationURL: activationURL.toString(), activationQRCode: qr.createDataURL(4, 8), publicAPIURL: baseURL, expiresAt, remainingSeconds: Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) };
 }
 
 export async function activationStatus(activationID: string) {
   if (!/^[0-9a-f-]{36}$/i.test(activationID)) throw new Error("Activation identifier is invalid");
   const row = await (await getDb()).prepare("SELECT expires_at AS expiresAt FROM activation_codes WHERE id=?").bind(activationID).first<{ expiresAt: number }>();
-  return { active: Boolean(row && row.expiresAt > Date.now()), expiresAt: row?.expiresAt ?? null };
+  const remainingSeconds = row ? Math.max(0, Math.ceil((row.expiresAt - Date.now()) / 1000)) : 0;
+  return { active: remainingSeconds > 0, expiresAt: row?.expiresAt ?? null, remainingSeconds };
 }
 
 export async function activateClient(code: string, rawName: unknown, rawInstanceID: unknown = randomUUID()) {

@@ -5,7 +5,8 @@ import { Check, Copy, ExternalLink, LoaderCircle, Plus, Smartphone, Trash2 } fro
 import { useEffect, useState } from "react";
 
 type Device = { id: string; name: string; createdAt: number; lastSeenAt: number };
-type Activation = { activationID: string; activationCode: string; activationURL: string; activationQRCode: string; publicAPIURL: string; expiresAt: number };
+type ActivationResponse = { activationID: string; activationCode: string; activationURL: string; activationQRCode: string; publicAPIURL: string; remainingSeconds: number };
+type Activation = ActivationResponse & { localExpiresAt: number };
 type Result<T> = { ok: boolean; data?: T; message?: string };
 
 async function api<T>(path: string, init?: RequestInit) {
@@ -47,13 +48,14 @@ export function ClientManagement() {
     const check = () => void api<{ active: boolean }>(`/api/v1/client/activation-codes?id=${encodeURIComponent(activation.activationID)}`).then((value) => {
       if (mounted && !value.active) { setActivation(undefined); setToast("客户端已连接"); void load(); }
     }).catch(() => {});
+    check();
     const timer = window.setInterval(check, 2000);
     return () => { mounted = false; window.clearInterval(timer); };
   }, [activation]);
   const activeCutoff = (now ?? 0) - 15 * 60_000;
   const activeDevices = now === undefined ? [] : devices.filter((device) => device.lastSeenAt >= activeCutoff);
   const inactiveDevices = now === undefined ? [] : devices.filter((device) => device.lastSeenAt < activeCutoff);
-  const activationSeconds = activation && now !== undefined ? Math.max(0, Math.ceil((activation.expiresAt - now) / 1000)) : 0;
+  const activationSeconds = activation && now !== undefined ? Math.max(0, Math.ceil((activation.localExpiresAt - now) / 1000)) : 0;
 
   async function copy(value: string, label: string) {
     try { await navigator.clipboard.writeText(value); setToast(`${label}已复制`); }
@@ -62,7 +64,10 @@ export function ClientManagement() {
 
   async function create() {
     setBusy("create"); setMessage("");
-    try { setActivation(await api<Activation>("/api/v1/client/activation-codes", { method: "POST", body: "{}" })); }
+    try {
+      const value = await api<ActivationResponse>("/api/v1/client/activation-codes", { method: "POST", body: "{}" });
+      setActivation({ ...value, localExpiresAt: Date.now() + value.remainingSeconds * 1000 });
+    }
     catch (error) { setMessage(error instanceof Error ? error.message : "生成失败"); }
     finally { setBusy(""); }
   }
