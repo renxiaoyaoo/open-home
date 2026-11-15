@@ -37,7 +37,7 @@ final class AppModel {
         var providerID: ProviderID { switch self { case .gate: .gate; case .living: .living; case .lock: .lock; case .auto: .auto } }
     }
 
-    var selectedModule: Module = .gate
+    var selectedModule: Module = .gate { didSet { UserDefaults.standard.set(selectedModule.rawValue, forKey: "openhome.selected-module") } }
     var connection: ConnectionConfiguration?
     var centerState: CenterState = .disconnected
     var sessionRevision = 0
@@ -60,7 +60,9 @@ final class AppModel {
         connection = connectionStore.load()
         self.directProviders = directProviders
         if connection?.mode == .center { centerState = .validating }
-        if let first = Module.allCases.first(where: { connection?.enabledProviders.contains($0.providerID) == true }) { selectedModule = first }
+        let saved = UserDefaults.standard.string(forKey: "openhome.selected-module").flatMap(Module.init(rawValue:))
+        if let preferred = saved, connection?.enabledProviders.contains(preferred.providerID) == true { selectedModule = preferred }
+        else if let first = Module.allCases.first(where: { connection?.enabledProviders.contains($0.providerID) == true }) { selectedModule = first }
     }
 
     func setModule(_ module: Module, enabled: Bool, connectionStore: ConnectionStore = ConnectionStore()) throws {

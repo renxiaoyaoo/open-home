@@ -32,6 +32,8 @@ struct RootView: View {
                                         .tag(module)
                                 }
                             }
+                            .toolbarBackground(Color.openHomeSurface, for: .tabBar)
+                            .toolbarBackground(.visible, for: .tabBar)
                         }
                     }
                     .toolbar {

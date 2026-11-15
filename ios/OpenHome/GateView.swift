@@ -11,6 +11,7 @@ final class GateViewModel {
     var message: String?
     var passwords: [String: GatePassword] = [:]
     private let provider: any GateProvider
+    private var messageTask: Task<Void, Never>?
 
     init(provider: any GateProvider) { self.provider = provider }
 
@@ -24,8 +25,8 @@ final class GateViewModel {
     func open(_ resource: GateResource) async {
         guard busyID == nil else { return }
         busyID = resource.id; defer { busyID = nil }
-        do { message = try await provider.open(resourceID: resource.id, idempotencyKey: UUID().uuidString).message }
-        catch { message = error.localizedDescription }
+        do { notify(try await provider.open(resourceID: resource.id, idempotencyKey: UUID().uuidString).message) }
+        catch { notify(error.localizedDescription) }
     }
 
     func showPassword(_ resource: GateResource) async {
@@ -35,8 +36,8 @@ final class GateViewModel {
             let value = try await provider.password(resourceID: resource.id)
             passwords[resource.id] = value
             UIPasteboard.general.string = value.password
-            message = "密码已复制"
-        } catch { message = error.localizedDescription }
+            notify("密码已复制")
+        } catch { notify(error.localizedDescription) }
     }
 
     func setSelected(_ resource: GateResource, selected: Bool) async {
@@ -45,8 +46,13 @@ final class GateViewModel {
         do {
             try await provider.setSelected(resourceID: resource.id, selected: selected)
             resources = try await provider.resources()
-            message = selected ? "已加入常用门禁" : "已移出常用门禁"
-        } catch { message = error.localizedDescription }
+            notify(selected ? "已加入常用门禁" : "已移出常用门禁")
+        } catch { notify(error.localizedDescription) }
+    }
+
+    private func notify(_ value: String) {
+        messageTask?.cancel(); message = value
+        messageTask = Task { try? await Task.sleep(for: .seconds(2.2)); guard !Task.isCancelled else { return }; message = nil }
     }
 }
 
@@ -67,12 +73,13 @@ struct GateView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             VStack(spacing: 10) {
-                ForEach(model.resources.filter { $0.selected && $0.passwordSupported }) { resource in
-                    passwordCard(resource)
-                }
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    ForEach(model.resources.filter { $0.selected && !$0.passwordSupported }) { resource in
-                        gateCard(resource)
+                ForEach(grouped(model.resources.filter(\.selected)), id: \.name) { group in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(group.name).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 2)
+                        ForEach(group.items.filter(\.passwordSupported)) { resource in passwordCard(resource) }
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                            ForEach(group.items.filter { !$0.passwordSupported }) { resource in gateCard(resource) }
+                        }
                     }
                 }
             }
@@ -90,7 +97,7 @@ struct GateView: View {
         Button { Task { await model.open(resource) } } label: {
             VStack(alignment: .leading, spacing: 15) {
                 Image(systemName: "lock.open").frame(width: 42, height: 42).background(Color.openHomeGate, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
-                resourceName(resource, large: false)
+                Text(resource.name).font(.headline).lineLimit(2)
             }.frame(maxWidth: .infinity, minHeight: 112, alignment: .leading).padding(14).background(Color.openHomeGate.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
         }.buttonStyle(.plain).disabled(model.busyID != nil)
     }
@@ -98,7 +105,7 @@ struct GateView: View {
     private func passwordCard(_ resource: GateResource) -> some View {
         HStack(spacing: 10) {
             Button { Task { await model.open(resource) } } label: {
-                HStack(spacing: 12) { Image(systemName: "lock.open").frame(width: 42, height: 42).background(Color.openHomeGate, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white); resourceName(resource, large: true) }
+                HStack(spacing: 12) { Image(systemName: "lock.open").frame(width: 42, height: 42).background(Color.openHomeGate, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white); Text(resource.name).font(.title3.bold()).lineLimit(2) }
                     .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading).layoutPriority(1)
             }.buttonStyle(.plain)
             Button { Task { await model.showPassword(resource) } } label: {
@@ -109,8 +116,15 @@ struct GateView: View {
         }.padding(10).background(Color.openHomeGate.opacity(0.10), in: RoundedRectangle(cornerRadius: 18)).disabled(model.busyID != nil)
     }
 
-    private func resourceName(_ resource: GateResource, large: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 3) { Text(resource.name).font(large ? .title3.bold() : .headline).lineLimit(1); if let community = resource.communityName { Text(community).font(.caption).foregroundStyle(.secondary).lineLimit(1) } }
+    private func grouped(_ resources: [GateResource]) -> [(name: String, items: [GateResource])] {
+        Dictionary(grouping: resources, by: communityName)
+            .map { (name: $0.key, items: $0.value) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func communityName(_ resource: GateResource) -> String {
+        let value = resource.communityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? "其他门禁" : value
     }
 }
 
@@ -121,13 +135,10 @@ private struct GateManagementView: View {
     var body: some View {
         NavigationStack {
             List {
-                if !model.resources.filter(\.selected).isEmpty {
-                    Section("常用门禁") {
-                        ForEach(model.resources.filter(\.selected)) { resource in row(resource) }
+                ForEach(groupedResources, id: \.name) { group in
+                    Section(group.name) {
+                        ForEach(group.items) { resource in row(resource) }
                     }
-                }
-                Section("全部门禁") {
-                    ForEach(model.resources.filter { !$0.selected }) { resource in row(resource) }
                 }
             }
             .navigationTitle("门禁")
@@ -143,7 +154,7 @@ private struct GateManagementView: View {
                 Image(systemName: "door.left.hand.open").frame(width: 32, height: 32).background(Color.openHomeGate.opacity(0.12), in: RoundedRectangle(cornerRadius: 9)).foregroundStyle(Color.openHomeGate)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(resource.name).foregroundStyle(.primary)
-                    if let community = resource.communityName { Text(community).font(.caption).foregroundStyle(.secondary) }
+                    Text(resource.selected ? "常用门禁" : "可添加到常用").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if model.busyID == resource.id { ProgressView() }
@@ -152,6 +163,15 @@ private struct GateManagementView: View {
         }
         .buttonStyle(.plain)
         .disabled(model.busyID != nil)
+    }
+
+    private var groupedResources: [(name: String, items: [GateResource])] {
+        Dictionary(grouping: model.resources) { resource in
+            let value = resource.communityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return value.isEmpty ? "其他门禁" : value
+        }
+        .map { (name: $0.key, items: $0.value.sorted { left, right in left.selected != right.selected ? left.selected : left.name.localizedStandardCompare(right.name) == .orderedAscending }) }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 }
 

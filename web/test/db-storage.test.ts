@@ -94,6 +94,14 @@ test("reactivating the same client installation replaces its token without addin
   await authenticateDevice(new Request("https://home.example/api/v1/doors", { headers: { authorization: `Bearer ${second.deviceToken}` } }));
 });
 
+test("reports an activation as consumed immediately after use", async () => {
+  const { activateClient, activationStatus, createActivation } = await import("../lib/client-auth.ts");
+  const issued = await createActivation("https://home.example/api/v1");
+  assert.equal((await activationStatus(issued.activationID)).active, true);
+  await activateClient(issued.activationCode, "Status iPhone", "00000000-0000-4000-8000-000000000099");
+  assert.equal((await activationStatus(issued.activationID)).active, false);
+});
+
 test("uses the current deployment origin when a separate native API domain is not configured", async () => {
   const previousURL = process.env.OPENHOME_PUBLIC_API_URL; const previousDomain = process.env.OPENHOME_CF_API_DOMAIN;
   delete process.env.OPENHOME_PUBLIC_API_URL; delete process.env.OPENHOME_CF_API_DOMAIN;

@@ -35,7 +35,8 @@ export async function createActivation(publicAPIURL: string, lifetimeMinutes = 1
   const secret = Array.from(bytes, (value) => ACTIVATION_ALPHABET[value % ACTIVATION_ALPHABET.length]).join("");
   const now = Date.now();
   const expiresAt = now + Math.min(Math.max(lifetimeMinutes, 1), 60) * 60_000;
-  await (await getDb()).prepare("INSERT INTO activation_codes (id,secret_hash,expires_at,created_at) VALUES (?,?,?,?)").bind(randomUUID(), digest("activation", secret), expiresAt, now).run();
+  const activationID = randomUUID();
+  await (await getDb()).prepare("INSERT INTO activation_codes (id,secret_hash,expires_at,created_at) VALUES (?,?,?,?)").bind(activationID, digest("activation", secret), expiresAt, now).run();
   const activationCode = `${secret.slice(0, 4)}-${secret.slice(4)}`;
   const activationURL = new URL("openhome://activate");
   activationURL.searchParams.set("server", baseURL);
@@ -43,7 +44,13 @@ export async function createActivation(publicAPIURL: string, lifetimeMinutes = 1
   const qr = createQRCode(0, "M");
   qr.addData(activationURL.toString());
   qr.make();
-  return { activationCode, activationURL: activationURL.toString(), activationQRCode: qr.createDataURL(4, 8), publicAPIURL: baseURL, expiresAt };
+  return { activationID, activationCode, activationURL: activationURL.toString(), activationQRCode: qr.createDataURL(4, 8), publicAPIURL: baseURL, expiresAt };
+}
+
+export async function activationStatus(activationID: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(activationID)) throw new Error("Activation identifier is invalid");
+  const row = await (await getDb()).prepare("SELECT expires_at AS expiresAt FROM activation_codes WHERE id=?").bind(activationID).first<{ expiresAt: number }>();
+  return { active: Boolean(row && row.expiresAt > Date.now()), expiresAt: row?.expiresAt ?? null };
 }
 
 export async function activateClient(code: string, rawName: unknown, rawInstanceID: unknown = randomUUID()) {

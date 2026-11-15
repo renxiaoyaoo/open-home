@@ -147,7 +147,7 @@ struct DryerView: View {
 
     private func statusCard(_ value: DryerSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 22) {
-            HStack { VStack(alignment: .leading, spacing: 3) { Text(value.name).font(.title3.bold()); Text(value.programName ?? "未选择程序").font(.subheadline).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: model.isLoading ? "arrow.triangle.2.circlepath" : "washer").font(.title2) }
+            HStack(alignment: .top) { VStack(alignment: .leading, spacing: 4) { Text(value.name).font(.caption).foregroundStyle(.white.opacity(0.7)); Text(value.programName ?? "未选择程序").font(.title2.bold()).lineLimit(2) }; Spacer(); Image(systemName: model.isLoading ? "arrow.triangle.2.circlepath" : "washer").font(.title2) }
             HStack(alignment: .lastTextBaseline) { VStack(alignment: .leading, spacing: 4) { Text("当前状态").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(value.state.label).font(.title.bold()) }; Spacer(); VStack(alignment: .trailing, spacing: 4) { Text("剩余时间").font(.caption).foregroundStyle(.white.opacity(0.65)); digitalClock(value.remainingMinutes, blinking: value.state == .running || value.state == .paused || value.state == .scheduled).font(.system(.largeTitle, design: .monospaced, weight: .semibold)).minimumScaleFactor(0.75).lineLimit(1) } }
         }.padding(20).foregroundStyle(.white).background(Color.openHomeLiving, in: RoundedRectangle(cornerRadius: 18))
     }
@@ -163,7 +163,7 @@ struct DryerView: View {
     }
     private var programCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("程序分类", selection: $model.programGroup) { ForEach(["日常程序", "特定材质", "DIY"], id: \.self) { Text($0).tag($0) } }.pickerStyle(.segmented).onChange(of: model.programGroup) { _, _ in model.showsAllPrograms = false }
+            Picker("程序分类", selection: $model.programGroup) { ForEach(["日常程序", "特定材质", "DIY"], id: \.self) { Text($0).tag($0) } }.pickerStyle(.segmented).controlSize(.large).onChange(of: model.programGroup) { _, _ in model.showsAllPrograms = false }
             LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                 ForEach(model.visiblePrograms) { program in
                     let selected = program.value == model.snapshot?.programID && (program.group != "DIY" || program.name == model.snapshot?.programName)
@@ -180,8 +180,8 @@ struct DryerView: View {
     }
     private func controlCard(_ value: DryerSnapshot) -> some View {
         HStack(spacing: 10) {
-            Button { if value.state == .off { Task { await model.togglePower() } } else { confirmsPowerOff = true } } label: { Label(value.state == .off ? "开机" : "关机", systemImage: "power") }.buttonStyle(.borderedProminent).tint(value.state == .off ? .openHomeLiving : .brown).disabled(model.isOperating)
-            Button { Task { await model.primaryAction() } } label: { Label(actionTitle(value.state), systemImage: actionSymbol(value.state)) }.buttonStyle(.borderedProminent).tint(value.state == .scheduled ? .red : value.state == .running ? .orange : .teal).disabled(model.isOperating || value.state == .off)
+            Button { if value.state == .off { Task { await model.togglePower() } } else { confirmsPowerOff = true } } label: { Label(value.state == .off ? "开机" : "关机", systemImage: "power").frame(maxWidth: .infinity) }.buttonStyle(.bordered).tint(.openHomeLiving).disabled(model.isOperating)
+            Button { Task { await model.primaryAction() } } label: { Label(actionTitle(value.state), systemImage: actionSymbol(value.state)).frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.openHomeLiving).disabled(model.isOperating || value.state == .off)
         }.frame(maxWidth: .infinity).controlSize(.large)
     }
     private func digitalClock(_ minutes: Int?, blinking: Bool) -> some View {

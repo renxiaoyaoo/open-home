@@ -65,8 +65,8 @@ struct LockView: View {
     }
     private func status(_ detail: LockDetail) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { VStack(alignment: .leading, spacing: 3) { Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.bold()); Text(detail.wifiName ?? "Wi‑Fi").font(.caption).foregroundStyle(.white.opacity(0.7)) }; Spacer(); if model.devices.count > 1 { Menu { ForEach(model.devices) { device in Button(device.name) { Task { await model.select(device.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") } } }
-            HStack(spacing: 10) { metric("门锁", detail.battery.map { "\($0)%" } ?? "—", "battery.75percent"); metric("猫眼", detail.cameraBattery.map { "\($0)%" } ?? "—", "camera"); metric("信号", detail.wifiSignal ?? "—", "wifi") }
+            HStack { VStack(alignment: .leading, spacing: 3) { Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.bold()); Text(detail.wifiName.map { "所连接 Wi‑Fi：\($0)" } ?? "未获取 Wi‑Fi 名称").font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1) }; Spacer(); if model.devices.count > 1 { Menu { ForEach(model.devices) { device in Button(device.name) { Task { await model.select(device.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") } } }
+            HStack(spacing: 10) { metric("门锁电量", detail.battery.map { "\($0)%" } ?? "—", "battery.75percent"); metric("猫眼电量", detail.cameraBattery.map { "\($0)%" } ?? "—", "camera"); metric("Wi‑Fi 信号", signalQuality(detail.wifiSignal), "wifi") }
             if let updated = detail.batteryUpdatedAt { Text("更新于 \(displayTime(updated))").font(.caption2).foregroundStyle(.white.opacity(0.55)).frame(maxWidth: .infinity, alignment: .trailing) }
         }.padding(18).foregroundStyle(.white).background(Color.openHomeLock, in: RoundedRectangle(cornerRadius: 18))
     }
@@ -99,7 +99,7 @@ struct LockView: View {
             if let cursor = model.captureCursor { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: cursor) { await model.loadMoreCaptures() } }
         }
     }
-    private func captureImage(_ url: URL) -> some View { AsyncImage(url: url) { phase in if case .success(let image) = phase { image.resizable().scaledToFill().rotationEffect(.degrees(90)).scaleEffect(1.34) } else if case .failure = phase { Color.black.opacity(0.08).overlay { Image(systemName: "photo") } } else { Color.black.opacity(0.06).overlay { ProgressView() } } }.clipped() }
+    private func captureImage(_ url: URL) -> some View { RotatedCaptureImage(url: url) }
     private func displayTime(_ value: String) -> String {
         let date: Date?
         if let seconds = Double(value), seconds > 1_000_000_000 { date = Date(timeIntervalSince1970: seconds) }
@@ -109,10 +109,40 @@ struct LockView: View {
         return formatter.string(from: date)
     }
     private func metric(_ label: String, _ value: String, _ symbol: String) -> some View { VStack(spacing: 5) { Image(systemName: symbol); Text(value).font(.headline); Text(label).font(.caption2).foregroundStyle(.white.opacity(0.7)) }.frame(maxWidth: .infinity) }
+    private func signalQuality(_ value: String?) -> String {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return "未知" }
+        if raw.contains("优") || raw.contains("强") || raw.lowercased().contains("good") { return "良好" }
+        if raw.contains("中") || raw.contains("一般") || raw.lowercased().contains("fair") { return "一般" }
+        if raw.contains("差") || raw.contains("弱") || raw.lowercased().contains("poor") { return "较弱" }
+        let number = Double(raw.filter { $0.isNumber || $0 == "-" || $0 == "." })
+        guard let number else { return "未知" }
+        if number < 0 { return number >= -60 ? "良好" : number >= -75 ? "一般" : "较弱" }
+        return number >= 70 ? "良好" : number >= 40 ? "一般" : "较弱"
+    }
 
     private struct MediaViewer: View {
         let item: Viewer; @Environment(\.dismiss) private var dismiss
-        var body: some View { NavigationStack { Group { switch item { case .image(let url): AsyncImage(url: url) { image in image.resizable().scaledToFit().rotationEffect(.degrees(90)) } placeholder: { ProgressView() }; case .video(let url): VideoPlayer(player: AVPlayer(url: url)) } }.background(.black).navigationTitle("抓拍").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } } } }
+        var body: some View { NavigationStack { Group { switch item { case .image(let url): RotatedCaptureImage(url: url).padding(); case .video(let url): VideoPlayer(player: AVPlayer(url: url)) } }.background(.black).navigationTitle("抓拍").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } } } }
+    }
+}
+
+private struct RotatedCaptureImage: View {
+    let url: URL
+    var body: some View {
+        GeometryReader { proxy in
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFit()
+                        .frame(width: proxy.size.height, height: proxy.size.width)
+                        .rotationEffect(.degrees(90))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                } else if case .failure = phase {
+                    Color.black.opacity(0.08).overlay { Image(systemName: "photo") }
+                } else {
+                    Color.black.opacity(0.06).overlay { ProgressView() }
+                }
+            }
+        }.clipped()
     }
 }
 

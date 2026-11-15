@@ -5,7 +5,7 @@ import { Check, Copy, ExternalLink, LoaderCircle, Plus, Smartphone, Trash2 } fro
 import { useEffect, useState } from "react";
 
 type Device = { id: string; name: string; createdAt: number; lastSeenAt: number };
-type Activation = { activationCode: string; activationURL: string; activationQRCode: string; publicAPIURL: string; expiresAt: number };
+type Activation = { activationID: string; activationCode: string; activationURL: string; activationQRCode: string; publicAPIURL: string; expiresAt: number };
 type Result<T> = { ok: boolean; data?: T; message?: string };
 
 async function api<T>(path: string, init?: RequestInit) {
@@ -40,6 +40,15 @@ export function ClientManagement() {
     if (!activation) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
+  }, [activation]);
+  useEffect(() => {
+    if (!activation) return;
+    let mounted = true;
+    const check = () => void api<{ active: boolean }>(`/api/v1/client/activation-codes?id=${encodeURIComponent(activation.activationID)}`).then((value) => {
+      if (mounted && !value.active) { setActivation(undefined); setToast("客户端已连接"); void load(); }
+    }).catch(() => {});
+    const timer = window.setInterval(check, 2000);
+    return () => { mounted = false; window.clearInterval(timer); };
   }, [activation]);
   const activeCutoff = (now ?? 0) - 15 * 60_000;
   const activeDevices = now === undefined ? [] : devices.filter((device) => device.lastSeenAt >= activeCutoff);
