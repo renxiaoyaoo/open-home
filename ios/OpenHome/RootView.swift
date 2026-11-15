@@ -218,7 +218,7 @@ private struct ConnectionSetupView: View {
                 Section {
                     DisclosureGroup("手动输入", isExpanded: $showingManualActivation) {
                         VStack(spacing: 12) {
-                            TextField("OpenHome 地址", text: $centerAddress)
+                            TextField("OpenHome 地址（管理页复制）", text: $centerAddress)
                                 .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             TextField("激活码", text: $activationCode)
                                 .textInputAutocapitalization(.characters).autocorrectionDisabled()
@@ -232,7 +232,7 @@ private struct ConnectionSetupView: View {
                         .padding(.top, 8)
                     }
                 } footer: {
-                    Text("服务器地址和激活码可从 OpenHome 管理页复制。")
+                    Text("管理页会同时显示 OpenHome 地址和激活码。")
                 }
                 if let errorMessage {
                     Section { Label(errorMessage, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
