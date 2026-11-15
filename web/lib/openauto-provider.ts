@@ -67,7 +67,8 @@ export class DirectOpenAutoProvider {
     if (String(response.code) !== "0") throw new Error(String(response.message || "账号登录失败"));
     const decoded = aesDecrypt(String(response.respondData || ""), key); const token = (decoded.token || {}) as Json; const relations = (token.superBindRelationDtoMap || {}) as Record<string, Json>; const superId = String(token.superId || ""); const userId = String(relations[targetBrand]?.userId || superId); const signToken = String(token.signToken || ""); const encryToken = String(token.encryToken || token.encryptToken || "");
     if (!userId || !signToken || !encryToken) throw new Error("登录响应缺少会话信息");
-    return { userId, superId: superId || undefined, signToken, encryToken, displayName: String(decoded.nickName || "OpenAuto 账号") };
+    const displayName = String(decoded.nickName || decoded.userName || decoded.username || decoded.name || `${phone.slice(0, 3)}****${phone.slice(-4)}`);
+    return { userId, superId: superId || undefined, signToken, encryToken, displayName };
   }
   private async rawVehicles() { const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new OpenAutoUpstreamError(String(response.code ?? "unknown"), String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); return (Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []) as Json[]; }
   private publicVehicles(items: Json[]) { return items.filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: String(item.autoName || item.modelName || item.carTypeName || "车辆") })); }

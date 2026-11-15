@@ -66,7 +66,7 @@ struct GateView: View {
         ScrollView {
             HStack {
                 Spacer()
-                Button("管理", systemImage: "slider.horizontal.3") { showingManagement = true }
+                Button("全部", systemImage: "list.bullet") { showingManagement = true }
                     .font(.subheadline.weight(.semibold))
                     .disabled(model.resources.isEmpty)
             }
@@ -75,7 +75,7 @@ struct GateView: View {
             VStack(spacing: 10) {
                 ForEach(grouped(model.resources.filter(\.selected)), id: \.name) { group in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(group.name).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 2)
+                        Text(group.name).font(.title3.bold()).padding(.horizontal, 2)
                         ForEach(group.items.filter(\.passwordSupported)) { resource in passwordCard(resource) }
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                             ForEach(group.items.filter { !$0.passwordSupported }) { resource in gateCard(resource) }
@@ -97,7 +97,7 @@ struct GateView: View {
         Button { Task { await model.open(resource) } } label: {
             VStack(alignment: .leading, spacing: 15) {
                 Image(systemName: "lock.open").frame(width: 42, height: 42).background(Color.openHomeGate, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
-                Text(resource.name).font(.headline).lineLimit(2)
+                Text(resource.name).font(.title3.bold()).lineLimit(2)
             }.frame(maxWidth: .infinity, minHeight: 112, alignment: .leading).padding(14).background(Color.openHomeGate.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
         }.buttonStyle(.plain).disabled(model.busyID != nil)
     }
@@ -141,7 +141,7 @@ private struct GateManagementView: View {
                     }
                 }
             }
-            .navigationTitle("门禁")
+            .navigationTitle("全部门禁")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
@@ -149,20 +149,23 @@ private struct GateManagementView: View {
     }
 
     private func row(_ resource: GateResource) -> some View {
-        Button { Task { await model.setSelected(resource, selected: !resource.selected) } } label: {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
+            Button { Task { await model.open(resource) } } label: {
+                HStack(spacing: 12) {
                 Image(systemName: "door.left.hand.open").frame(width: 32, height: 32).background(Color.openHomeGate.opacity(0.12), in: RoundedRectangle(cornerRadius: 9)).foregroundStyle(Color.openHomeGate)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(resource.name).foregroundStyle(.primary)
-                    Text(resource.selected ? "常用门禁" : "可添加到常用").font(.caption).foregroundStyle(.secondary)
+                    Text(resource.name).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                    Text("轻点开门").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if model.busyID == resource.id { ProgressView() }
-                else { Image(systemName: resource.selected ? "star.fill" : "star").foregroundStyle(resource.selected ? Color.openHomeGate : .secondary) }
+                }
             }
-        }
-        .buttonStyle(.plain)
-        .disabled(model.busyID != nil)
+            .buttonStyle(.plain)
+            Button { Task { await model.setSelected(resource, selected: !resource.selected) } } label: {
+                Image(systemName: resource.selected ? "star.fill" : "star").font(.title3).foregroundStyle(resource.selected ? Color.openHomeGate : .secondary).frame(width: 44, height: 44)
+            }.buttonStyle(.plain).accessibilityLabel(resource.selected ? "取消常用" : "加入常用")
+            if model.busyID == resource.id { ProgressView().controlSize(.small) }
+        }.disabled(model.busyID != nil)
     }
 
     private var groupedResources: [(name: String, items: [GateResource])] {

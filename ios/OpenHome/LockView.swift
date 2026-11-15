@@ -26,7 +26,9 @@ import UIKit
             detail = loadedDetail; dynamics = d.items; security = s.items; operations = o.items; captures = c.items
             cursors = [.dynamics: d.nextCursor, .security: s.nextCursor, .operation: o.nextCursor].compactMapValues { $0 }
             captureCursor = c.nextCursor; message = nil
-        } catch { message = error.localizedDescription }
+        } catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
+        catch { message = error.localizedDescription }
     }
     func select(_ id: String) async { selectedDeviceID = id; detail = nil; dynamics = []; security = []; operations = []; captures = []; cursors = [:]; captureCursor = nil; temporaryPassword = nil; await load() }
     func loadMore(_ kind: RecordKind) async {
@@ -65,9 +67,8 @@ struct LockView: View {
     }
     private func status(_ detail: LockDetail) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { VStack(alignment: .leading, spacing: 3) { Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.bold()); Text(detail.wifiName.map { "所连接 Wi‑Fi：\($0)" } ?? "未获取 Wi‑Fi 名称").font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1) }; Spacer(); if model.devices.count > 1 { Menu { ForEach(model.devices) { device in Button(device.name) { Task { await model.select(device.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") } } }
+            HStack { VStack(alignment: .leading, spacing: 3) { Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.bold()); HStack(spacing: 6) { Text(detail.wifiName.map { "Wi‑Fi：\($0)" } ?? "Wi‑Fi 名称未知").lineLimit(1); if let updated = detail.batteryUpdatedAt { Text("· 更新于 \(displayTime(updated))").lineLimit(1) } }.font(.caption).foregroundStyle(.white.opacity(0.7)) }; Spacer(); if model.devices.count > 1 { Menu { ForEach(model.devices) { device in Button(device.name) { Task { await model.select(device.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") } } }
             HStack(spacing: 10) { metric("门锁电量", detail.battery.map { "\($0)%" } ?? "—", "battery.75percent"); metric("猫眼电量", detail.cameraBattery.map { "\($0)%" } ?? "—", "camera"); metric("Wi‑Fi 信号", signalQuality(detail.wifiSignal), "wifi") }
-            if let updated = detail.batteryUpdatedAt { Text("更新于 \(displayTime(updated))").font(.caption2).foregroundStyle(.white.opacity(0.55)).frame(maxWidth: .infinity, alignment: .trailing) }
         }.padding(18).foregroundStyle(.white).background(Color.openHomeLock, in: RoundedRectangle(cornerRadius: 18))
     }
     private var passwordCard: some View {

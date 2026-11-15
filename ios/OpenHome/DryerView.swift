@@ -158,7 +158,7 @@ struct DryerView: View {
                 VStack(alignment: .leading) { Text("开始").font(.caption2).foregroundStyle(.secondary); DatePicker("开始", selection: $model.scheduledStart, displayedComponents: .hourAndMinute).labelsHidden().disabled(value.state == .scheduled || value.state == .running) }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading) { Text("预计完成").font(.caption2).foregroundStyle(.secondary); Text(model.expectedFinish(for: model.selectedProgram)?.formatted(date: .omitted, time: .shortened) ?? "—").font(.headline.monospacedDigit()) }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button(value.state == .scheduled ? "已预约" : "确认预约") { Task { await model.schedule() } }.buttonStyle(.borderedProminent).tint(.openHomeLiving).disabled(model.isOperating || value.state == .scheduled || model.selectedProgram == nil || value.state == .running || value.state == .off)
+            Button { Task { await model.schedule() } } label: { Label(value.state == .scheduled ? "已预约" : "确认预约", systemImage: "calendar.badge.checkmark").frame(maxWidth: .infinity) }.buttonStyle(OpenHomePrimaryButton()).disabled(model.isOperating || value.state == .scheduled || model.selectedProgram == nil || value.state == .running || value.state == .off)
         }.padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
     }
     private var programCard: some View {

@@ -107,8 +107,8 @@ struct RootView: View {
 
     private var connectionMenu: some View {
         Menu {
-                if case .connected(let session) = model.centerState {
-                    Text(session.deviceName)
+                if case .connected = model.centerState {
+                    Label("已连接 OpenHome", systemImage: "checkmark.circle")
                 } else if case .unavailable = model.centerState {
                     Button("重新检查连接", systemImage: "arrow.clockwise") { Task { await model.validateCenter() } }
                 } else if model.centerState == .revoked {
@@ -470,7 +470,7 @@ private struct ModuleUnavailableView: View {
     }
 }
 
-private struct OpenHomePrimaryButton: ButtonStyle {
+struct OpenHomePrimaryButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.fontWeight(.semibold).frame(maxWidth: .infinity).frame(height: 46).foregroundStyle(.white).background(Color.openHomeAccent.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 12))
     }
