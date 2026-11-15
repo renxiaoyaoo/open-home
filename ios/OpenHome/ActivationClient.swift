@@ -16,8 +16,12 @@ struct ActivationClient: Sendable {
         let identity = try installationIdentity()
         request.httpBody = try JSONEncoder().encode(Body(code: normalized, deviceName: deviceName, instanceID: identity))
         let (responseData, urlResponse) = try await URLSession.shared.data(for: request)
-        let response = try JSONDecoder().decode(Response.self, from: responseData)
-        guard let http = urlResponse as? HTTPURLResponse, 200..<300 ~= http.statusCode, response.ok, let value = response.data else { throw ActivationError.rejected(response.message) }
+        guard let http = urlResponse as? HTTPURLResponse else { throw ActivationError.invalidResponse }
+        let contentType = http.value(forHTTPHeaderField: "content-type")?.lowercased() ?? ""
+        guard contentType.contains("application/json"), let response = try? JSONDecoder().decode(Response.self, from: responseData) else {
+            throw ActivationError.invalidResponse
+        }
+        guard 200..<300 ~= http.statusCode, response.ok, let value = response.data else { throw ActivationError.rejected(response.message) }
         return .init(baseURL: baseURL, deviceID: value.deviceID, deviceToken: value.deviceToken)
     }
 
@@ -31,12 +35,13 @@ struct ActivationClient: Sendable {
 }
 
 enum ActivationError: LocalizedError {
-    case invalidCode, invalidAddress
+    case invalidCode, invalidAddress, invalidResponse
     case rejected(String?)
     var errorDescription: String? {
         switch self {
         case .invalidCode: "请输入 8 位激活码"
         case .invalidAddress: "OpenHome 地址无效"
+        case .invalidResponse: "服务器没有返回 OpenHome 激活数据，请重新生成连接链接"
         case .rejected(let message): message ?? "激活码无效或已过期"
         }
     }

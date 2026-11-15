@@ -176,59 +176,97 @@ private struct ConnectionSetupView: View {
     @State private var showingManualActivation = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
+        Form {
+            Section {
                 Picker("连接方式", selection: $mode) {
                     Text("连接 OpenHome").tag(ConnectionMode.center)
                     Text("仅在此设备使用").tag(ConnectionMode.direct)
                 }.pickerStyle(.segmented)
+            }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Image(systemName: mode == .center ? "house.and.flag" : "iphone.gen3").font(.title2).foregroundStyle(Color.openHomeAccent)
-                    Text(mode == .center ? "连接自己的 OpenHome" : "直接连接设备服务").font(.title2.bold())
-                    if mode == .center {
-                        Button {
-                            if DataScannerViewController.isSupported && DataScannerViewController.isAvailable { showingScanner = true }
-                            else { errorMessage = "此设备当前无法使用相机扫描" }
-                        } label: {
-                            Label("扫描激活二维码", systemImage: "qrcode.viewfinder")
-                        }
-                        .buttonStyle(OpenHomePrimaryButton())
-                        Button(showingManualActivation ? "收起手动连接" : "手动连接", systemImage: showingManualActivation ? "chevron.up" : "keyboard") {
-                            showingManualActivation.toggle()
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        if showingManualActivation {
+            if mode == .center {
+                Section {
+                    VStack(spacing: 10) {
+                        Image(systemName: "house.and.flag.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(Color.openHomeAccent)
+                        Text("连接 OpenHome")
+                            .font(.title2.bold())
+                        Text("扫描管理页生成的二维码，或直接在 iPhone 上打开连接链接。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+                Section {
+                    Button {
+                        if DataScannerViewController.isSupported && DataScannerViewController.isAvailable { showingScanner = true }
+                        else { errorMessage = "此设备当前无法使用相机扫描" }
+                    } label: {
+                        Label("扫描二维码", systemImage: "qrcode.viewfinder")
+                            .frame(maxWidth: .infinity, minHeight: 32)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
+                Section {
+                    DisclosureGroup("手动输入", isExpanded: $showingManualActivation) {
+                        VStack(spacing: 12) {
                             TextField("OpenHome 地址", text: $centerAddress)
-                                .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                                .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             TextField("激活码", text: $activationCode)
-                                .textInputAutocapitalization(.characters).autocorrectionDisabled().textFieldStyle(.roundedBorder)
+                                .textInputAutocapitalization(.characters).autocorrectionDisabled()
                                 .font(.system(.title3, design: .monospaced).weight(.semibold))
                                 .onChange(of: activationCode) { _, value in activationCode = formattedActivationCode(value) }
-                            Button(isActivating ? "正在连接…" : "继续") { Task { await activate() } }.buttonStyle(OpenHomePrimaryButton()).disabled(activationCode.count != 9 || isActivating)
+                            Button(isActivating ? "正在连接…" : "连接") { Task { await activate() } }
+                                .buttonStyle(.borderedProminent)
+                                .frame(maxWidth: .infinity)
+                                .disabled(activationCode.count != 9 || isActivating)
                         }
-                        if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
+                        .padding(.top, 8)
+                    }
+                } footer: {
+                    Text("服务器地址和激活码可从 OpenHome 管理页复制。")
+                }
+                if let errorMessage {
+                    Section { Label(errorMessage, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
+                }
+            } else {
+                Section {
+                    VStack(spacing: 10) {
+                        Image(systemName: "iphone.gen3").font(.system(size: 36)).foregroundStyle(Color.openHomeAccent)
+                        Text("仅在此设备使用").font(.title2.bold())
+                    }.frame(maxWidth: .infinity).padding(.vertical, 12)
+                    .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+                }
+                Section {
+                    if model.directProviders.installed.isEmpty {
+                        ContentUnavailableView("没有可用的直连模块", systemImage: "shippingbox", description: Text("此构建未安装直连 Provider"))
                     } else {
-                        if model.directProviders.installed.isEmpty {
-                            ContentUnavailableView("没有可用的直连模块", systemImage: "shippingbox", description: Text("此构建未安装直连 Provider"))
-                        } else {
-                            Text("选择要在本机使用的模块").font(.subheadline).foregroundStyle(.secondary)
-                            LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
-                                ForEach(AppModel.Module.allCases.filter { model.directProviders.installed.contains($0.providerID) }) { module in
+                        ForEach(AppModel.Module.allCases.filter { model.directProviders.installed.contains($0.providerID) }) { module in
                                 let selected = directProviders.contains(module.providerID)
-                                Button { if selected { directProviders.remove(module.providerID) } else { directProviders.insert(module.providerID) } } label: {
-                                    HStack { Image(systemName: module.symbol); Text(module.rawValue).font(.caption.bold()); Spacer(); Image(systemName: selected ? "checkmark.circle.fill" : "circle") }
-                                        .padding(12).foregroundStyle(selected ? Color.openHomeAccent : .secondary).background(selected ? Color.openHomeAccent.opacity(0.10) : Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 12))
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                        Button("继续") { do { model.connection = try ConnectionStore().saveDirect(providers: directProviders) } catch { errorMessage = error.localizedDescription } }.buttonStyle(OpenHomePrimaryButton()).disabled(directProviders.isEmpty)
+                            Button { if selected { directProviders.remove(module.providerID) } else { directProviders.insert(module.providerID) } } label: {
+                                Label { HStack { Text(module.rawValue); Spacer(); Image(systemName: selected ? "checkmark.circle.fill" : "circle") } } icon: { Image(systemName: module.symbol) }
+                            }.buttonStyle(.plain).foregroundStyle(selected ? Color.openHomeAccent : .secondary)
                         }
                     }
                 }
-                .padding(20).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 18))
-            }.padding(14).frame(maxWidth: 520)
+                Section {
+                    Button("继续") { do { model.connection = try ConnectionStore().saveDirect(providers: directProviders) } catch { errorMessage = error.localizedDescription } }
+                        .buttonStyle(.borderedProminent).frame(maxWidth: .infinity).disabled(directProviders.isEmpty)
+                }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+            }
         }
+        .formStyle(.grouped)
+        .navigationTitle("OpenHome")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear { directProviders = model.directProviders.installed }
         .sheet(isPresented: $showingScanner) {
             ZStack(alignment: .topTrailing) {

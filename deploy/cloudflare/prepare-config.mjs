@@ -14,12 +14,25 @@ export function cloudflareRoutes(environment = process.env) {
   return domains.map((pattern) => ({ pattern, custom_domain: true }));
 }
 
+export function publicAPIURL(environment = process.env) {
+  const explicit = environment.OPENHOME_PUBLIC_API_URL;
+  const value = explicit || (environment.OPENHOME_CF_API_DOMAIN ? `https://${environment.OPENHOME_CF_API_DOMAIN}/api/v1` : "");
+  if (!value) return "";
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+    throw new Error("OpenHome public API URL must be an HTTPS URL without credentials, query, or fragment");
+  }
+  url.pathname = `${url.pathname.replace(/\/$/, "") || ""}/`;
+  return url.toString().replace(/\/$/, "");
+}
+
 export function prepareConfiguration(environment = process.env) {
   const databaseId = environment.OPENHOME_CF_DATABASE_ID;
   const databaseName = environment.OPENHOME_CF_DATABASE_NAME || "open-home";
   const apiEnabled = environment.OPENHOME_ACCESS_ENABLED === "1" ? "1" : "0";
   if (!databaseId) throw new Error("Set OPENHOME_CF_DATABASE_ID in the private deployment environment");
   const routes = cloudflareRoutes(environment);
+  const apiURL = publicAPIURL(environment);
   const routeConfiguration = routes.length ? `"routes": ${JSON.stringify(routes)},` : "";
   const template = readFileSync(resolve(root, "wrangler.template.jsonc"), "utf8");
   writeFileSync(
@@ -28,6 +41,7 @@ export function prepareConfiguration(environment = process.env) {
       .replace("__DATABASE_ID__", databaseId)
       .replace("__DATABASE_NAME__", databaseName)
       .replace("__API_ENABLED__", apiEnabled)
+      .replace("__PUBLIC_API_URL__", JSON.stringify(apiURL))
       .replace("__ROUTES__", routeConfiguration),
   );
 }

@@ -6,7 +6,10 @@
   "no_bundle": true,
   __ROUTES__
   "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
-  "vars": { "OPENHOME_ACCESS_ENABLED": "__API_ENABLED__" },
+  "vars": {
+    "OPENHOME_ACCESS_ENABLED": "__API_ENABLED__",
+    "OPENHOME_PUBLIC_API_URL": __PUBLIC_API_URL__
+  },
   "triggers": { "crons": ["* * * * *"] },
   "assets": { "directory": "dist/client" },
   "d1_databases": [{
