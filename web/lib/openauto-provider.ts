@@ -85,16 +85,24 @@ export class DirectOpenAutoProvider {
     return aesDecrypt(String(response.respondData || ""), built.contentKey);
   }
   private async locationName(vehicleId: string) {
-    const route = this.config!.routes.location; const resolver = this.config!.locationResolver;
-    if (!route || !resolver) return undefined;
+    const route = this.config!.routes.location;
+    if (!route) return undefined;
     const inner = { ...this.inner(), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("location"), built.request);
     if (String(response.code) !== "0") return undefined;
-    const coordinates = locationCoordinates(aesDecrypt(String(response.respondData || ""), built.contentKey));
+    const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey);
+    const embedded = text(decoded.locationName) || text(decoded.locationAddress) || text(decoded.address) || text(decoded.poiName);
+    if (embedded) return embedded;
+    const coordinates = locationCoordinates(decoded);
+    const resolver = this.config!.locationResolver;
+    if (coordinates && resolver?.baseUrl && resolver.key) {
+      const url = new URL(resolver.baseUrl); url.searchParams.set("location", `${coordinates.latitude},${coordinates.longitude}`); url.searchParams.set("key", resolver.key); url.searchParams.set("get_poi", "1");
+      const resolved = await fetch(url, { cache: "no-store" }).then((item) => item.ok ? item.json() as Promise<Json> : undefined).catch(() => undefined);
+      const result = resolved?.result as Json | undefined; const formatted = result?.formatted_addresses as Json | undefined; const pois = Array.isArray(result?.pois) ? result.pois as Json[] : [];
+      const named = text(formatted?.recommend) || text(pois[0]?.title) || text(result?.address);
+      if (named) return named;
+    }
     if (!coordinates) return undefined;
-    const url = new URL(resolver.baseUrl); url.searchParams.set("location", `${coordinates.latitude},${coordinates.longitude}`); url.searchParams.set("key", resolver.key); url.searchParams.set("get_poi", "1");
-    const resolved = await fetch(url, { cache: "no-store" }).then((item) => item.ok ? item.json() as Promise<Json> : undefined);
-    const result = resolved?.result as Json | undefined; const formatted = result?.formatted_addresses as Json | undefined; const pois = Array.isArray(result?.pois) ? result.pois as Json[] : [];
-    return text(formatted?.recommend) || text(pois[0]?.title) || text(result?.address);
+    return `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}`;
   }
   private async cabinTemperature(vehicleId: string) {
     const inner = { ...this.inner(), vin: vehicleId }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("climateStatus"), built.request);
@@ -109,7 +117,7 @@ export class DirectOpenAutoProvider {
       this.energyRequest("historicalEnergy", vehicleId, vehicle),
       this.energyRequest("recentEnergy", vehicleId, vehicle, { type: "NEAREST_KM" }),
     ]);
-    if (location.status === "fulfilled") summary.locationName = location.value;
+    if (location.status === "fulfilled" && location.value) summary.locationName = location.value;
     if (climate.status === "fulfilled") summary.cabinTemperatureC = climate.value ?? summary.cabinTemperatureC;
     if (historical.status === "rejected") {
       console.warn("OpenAuto aggregate energy failed", { message: historical.reason instanceof Error ? historical.reason.message : "unknown error" });
