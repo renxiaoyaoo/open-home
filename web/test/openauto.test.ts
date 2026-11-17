@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary } from "../lib/openauto.ts";
+import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, vehicleDisplayName } from "../lib/openauto.ts";
 
 test("normalizes a vehicle-condition response without retaining provider fields", () => {
   const summary = normalizeVehicleSummary({
@@ -172,6 +172,19 @@ test("normalizes the current aggregate range, health, and energy contracts", () 
   assert.equal(energy.fuelLitres, 0);
   assert.equal(energy.cumulativeEquivalentFuelLitresPer100Km, 4.6);
   assert.equal(energy.recentTrend[0]?.peerAverageLitresPer100Km, 4.5);
+});
+
+test("uses the vehicle list name instead of a stale model name", () => {
+  assert.equal(vehicleDisplayName({ autoName: "新名字", modelName: "海狮06DMi" }), "新名字");
+  assert.equal(normalizeVehicleSummary({ vin: "TEST-VEHICLE", autoName: "新名字", modelName: "海狮06DMi" }).name, "新名字");
+});
+
+test("plots recent energy from oldest to newest", () => {
+  const energy = normalizeDetailedVehicleEnergy({}, {
+    selfList: [{ date: "2026-11-03", lastFee: "5.1" }, { date: "2026-11-01", lastFee: "4.1" }, { date: "2026-11-02", lastFee: "3.8" }],
+    firstRecentList: [{ lastFee: "4.6" }],
+  });
+  assert.deepEqual(energy.recentTrend.map((item) => item.date), ["2026-11-01", "2026-11-02", "2026-11-03"]);
 });
 
 test("uses official vehicle-list metadata for aggregate energy", () => {

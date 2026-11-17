@@ -84,6 +84,13 @@ export async function revokeDevice(deviceID: string) {
   return { deviceID };
 }
 
+export async function renameDevice(deviceID: string, rawName: unknown) {
+  const name = deviceName(rawName);
+  const updated = await (await getDb()).prepare("UPDATE client_devices SET name=? WHERE id=? AND revoked_at IS NULL RETURNING id").bind(name, deviceID).first<{ id: string }>();
+  if (!updated) throw new ClientAuthorizationError("Device authorization failed");
+  return { deviceID, deviceName: name };
+}
+
 export async function listDevices() {
   const rows = await (await getDb()).prepare("SELECT id,name,created_at AS createdAt,last_seen_at AS lastSeenAt FROM client_devices WHERE revoked_at IS NULL ORDER BY last_seen_at DESC").all<{ id: string; name: string; createdAt: number; lastSeenAt: number }>();
   return rows.results;

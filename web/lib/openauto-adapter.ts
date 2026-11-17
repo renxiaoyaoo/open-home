@@ -22,7 +22,9 @@ export async function callOpenAuto(operation: string, request: Request) {
   const provider = new DirectOpenAutoProvider(stored.session);
   if (operation === "profile") {
     const account = (await listAccounts("openauto")).find((value) => value.id === stored.accountId);
-    const displayName = stored.session.displayName && stored.session.displayName !== "OpenAuto 账号" ? stored.session.displayName : account?.mobileMask;
+    const storedName = stored.session.displayName?.trim();
+    const accountName = account?.displayName?.trim();
+    const displayName = [storedName, accountName, account?.mobileMask].find((value) => value && value !== "OpenAuto 账号" && value !== "已连接账号");
     return Response.json({ ok: true, data: { accountId: stored.accountId, displayName } });
   }
   if (operation === "bootstrap") return Response.json({ ok: true, data: await provider.bootstrap() });

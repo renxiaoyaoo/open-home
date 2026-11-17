@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, KeyRound, List, LoaderCircle, LockKeyholeOpen, LogOut, Plus, RefreshCw, Smartphone, X } from "lucide-react";
+import { Copy, KeyRound, List, LoaderCircle, LockKeyholeOpen, LogOut, Plus, RefreshCw, Smartphone, Star, X } from "lucide-react";
 import { useFeatureActivation } from "./use-feature-activation";
 
 type Door = { id: string; name: string; communityName?: string | null; passwordSupported?: boolean; providerFeatured: boolean; selected: boolean; refreshedAt: number };
@@ -9,6 +9,15 @@ type Account = { id: string; username: string };
 type DoorPassword = { value: string; validUntil: number };
 type Toast = { text: string; kind: "success" | "error" | "info" };
 type ApiResult<T = unknown> = { ok: boolean; message?: string; data?: T; meta?: { failedAccountCount?: number; expiredAccountCount?: number } };
+
+function groupedDoors(doors: Door[]) {
+  const groups = new Map<string, Door[]>();
+  for (const door of doors) {
+    const name = door.communityName?.trim() || "其他门禁";
+    groups.set(name, [...(groups.get(name) || []), door]);
+  }
+  return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "zh-CN"));
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
   const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
@@ -211,19 +220,20 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
               <button onClick={loadDoors} disabled={busy !== null} aria-label="刷新门禁" className="ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-[10px] text-[#65625b] disabled:opacity-40"><RefreshCw size={17} className={busy === "doors" ? "animate-spin" : ""} /></button>
             </section>
 
-            <div><div className="mb-3 flex items-center justify-between px-1"><h2 className="text-[15px] font-semibold tracking-[-.01em]">{manageDoors ? "选择常用门禁" : "常用门禁"}</h2><button onClick={() => setManageDoors((value) => !value)} aria-label={manageDoors ? "完成选择" : `选择常用门禁，已选 ${selectedDoorCount}/${doors.length}`} className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#dedbd3] bg-[#fbfaf7] px-3.5 text-sm font-medium text-[#65625b]">{manageDoors ? "完成" : <><List size={15} /><span className="tabular-nums text-[#9a968d]">{selectedDoorCount}/{doors.length}</span></>}</button></div>
-              {busy === "doors" && !doors.length ? <div className="grid h-48 place-items-center rounded-[18px] border border-[#dedbd3] bg-[#fbfaf7]"><LoaderCircle className="animate-spin text-[#d97757]" /></div> : !visibleDoors.length && !manageDoors ? <button onClick={() => setManageDoors(true)} className="h-32 w-full rounded-[16px] border border-[#dedbd3] bg-[#fbfaf7] text-sm font-medium text-[#65625b]">选择首页门禁</button> : <div className="grid grid-cols-2 items-start gap-3">{visibleDoors.map((door) => (
+            <div><div className="mb-3 flex items-center justify-between px-1"><h2 className="text-lg font-semibold tracking-[-.02em]">{manageDoors ? "全部门禁" : "常用门禁"}</h2><button onClick={() => setManageDoors((value) => !value)} aria-label={manageDoors ? "返回常用门禁" : `全部门禁，已选 ${selectedDoorCount}/${doors.length}`} className="flex h-10 items-center gap-1.5 rounded-[10px] border border-[#dedbd3] bg-[#fbfaf7] px-3.5 text-sm font-semibold text-[#65625b]">{manageDoors ? "完成" : <><List size={16} />全部</>}</button></div>
+              {manageDoors && <p className="mb-3 px-1 text-xs leading-5 text-[#77736b]">点门禁开门，点星标加入或移出常用。首页只显示已加星的门，这里可以打开全部门。</p>}
+              {busy === "doors" && !doors.length ? <div className="grid h-48 place-items-center rounded-[18px] border border-[#dedbd3] bg-[#fbfaf7]"><LoaderCircle className="animate-spin text-[#d97757]" /></div> : !visibleDoors.length && !manageDoors ? <button onClick={() => setManageDoors(true)} className="h-32 w-full rounded-[16px] border border-[#dedbd3] bg-[#fbfaf7] text-sm font-medium text-[#65625b]">查看全部门禁</button> : <div className="space-y-5">{groupedDoors(visibleDoors).map(([community, items]) => <section key={community}><h3 className="mb-2 px-1 text-xl font-semibold tracking-[-.02em]">{community}</h3><div className="grid grid-cols-2 items-start gap-3">{items.map((door) => (
                 <article key={door.id} className={`relative flex self-start overflow-hidden rounded-[18px] border border-[#d9d3ca] shadow-[0_8px_24px_rgba(71,55,45,.045)] ${door.passwordSupported && !manageDoors ? "col-span-2 min-h-[104px]" : "min-h-[112px]"} ${door.selected ? "bg-[#f0e6df]" : "bg-[#efede8]"}`}>
-                  <button onClick={() => manageDoors ? toggleDoor(door) : openDoor(door)} disabled={manageDoors ? savingDoorIds.has(door.id) : busy !== null} aria-busy={savingDoorIds.has(door.id)} className={`flex min-w-0 flex-1 gap-3 px-4 py-4 text-left transition active:scale-[.99] ${door.passwordSupported && !manageDoors ? "items-center" : "flex-col items-start justify-between"} ${manageDoors ? "" : "disabled:opacity-55"} ${door.selected ? "text-[#342d29]" : "text-[#67635d]"}`}>
-                    <span className={`relative grid h-11 w-11 shrink-0 place-items-center rounded-[13px] ${door.selected ? "bg-[#9a654f] text-white" : "bg-[#fbfaf7] text-[#77736b]"}`}>{busy === door.id ? <LoaderCircle className="animate-spin" size={22} /> : manageDoors && door.selected ? <Check size={24} strokeWidth={2.3} /> : <LockKeyholeOpen size={22} strokeWidth={2.1} />}{savingDoorIds.has(door.id) && <LoaderCircle aria-hidden="true" className="absolute -right-1.5 -top-1.5 animate-spin rounded-full bg-[#fbfaf7] p-1 text-[#9a5a45]" size={20} />}</span>
+                  <button onClick={() => openDoor(door)} disabled={busy !== null} aria-busy={savingDoorIds.has(door.id)} className={`flex min-w-0 flex-1 gap-3 px-4 py-4 text-left transition active:scale-[.99] disabled:opacity-55 ${manageDoors ? "pr-12" : ""} ${door.passwordSupported && !manageDoors ? "items-center" : "flex-col items-start justify-between"} ${door.selected ? "text-[#342d29]" : "text-[#67635d]"}`}>
+                    <span className={`relative grid h-11 w-11 shrink-0 place-items-center rounded-[13px] ${door.selected ? "bg-[#9a654f] text-white" : "bg-[#fbfaf7] text-[#77736b]"}`}>{busy === door.id ? <LoaderCircle className="animate-spin" size={22} /> : <LockKeyholeOpen size={22} strokeWidth={2.1} />}{savingDoorIds.has(door.id) && <LoaderCircle aria-hidden="true" className="absolute -right-1.5 -top-1.5 animate-spin rounded-full bg-[#fbfaf7] p-1 text-[#9a5a45]" size={20} />}</span>
                     <span className={`block min-w-0 max-w-full ${door.passwordSupported && !manageDoors ? "flex-1" : ""}`}>
-                      <strong className={`block truncate font-semibold leading-tight tracking-[-.015em] ${door.passwordSupported && !manageDoors ? "text-[21px]" : "text-[17px]"}`}>{door.name}</strong>
-                      {door.communityName && <span className="mt-1.5 block truncate text-[13px] font-medium leading-tight text-[#77736b]">{door.communityName}</span>}
+                      <strong className={`block truncate font-semibold leading-tight tracking-[-.02em] ${door.passwordSupported && !manageDoors ? "text-[24px]" : "text-[20px]"}`}>{door.name}</strong>
                     </span>
                   </button>
+                  {manageDoors && <button aria-label={door.selected ? `移出常用 ${door.name}` : `加入常用 ${door.name}`} onClick={() => toggleDoor(door)} disabled={savingDoorIds.has(door.id)} className="absolute right-2 top-2 grid h-10 w-10 place-items-center rounded-full bg-[#fbfaf7] text-[#9a654f]">{door.selected ? <Star size={18} fill="currentColor" /> : <Star size={18} />}</button>}
                   {!manageDoors && door.passwordSupported && <button aria-label={`${door.name}开门密码`} onClick={() => showPassword(door)} disabled={busy !== null} className="m-2.5 flex w-[132px] shrink-0 flex-col items-center justify-center rounded-[14px] border border-[#d9d3ca] bg-[#fbfaf7] px-2 text-[#9a5a45] tabular-nums disabled:opacity-40">{busy === `password:${door.id}` ? <LoaderCircle className="animate-spin" size={18} /> : passwords[door.id] ? <><span className="flex items-center gap-1.5"><Copy size={14} /><strong className="font-mono text-[21px] tracking-[.12em]">{passwords[door.id].value}</strong></span><span className="mt-1.5 font-mono text-[11px] text-[#77736b]">剩余 {passwordLabel(door.id).split(/\s+/).at(-1)}</span></> : <><KeyRound size={18} /><span className="mt-1.5 text-xs font-semibold">查看密码</span></>}</button>}
                 </article>
-              ))}</div>}
+              ))}</div></section>)}</div>}
             </div>
           </div>
         )}

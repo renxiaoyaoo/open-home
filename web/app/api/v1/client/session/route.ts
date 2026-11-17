@@ -1,4 +1,4 @@
-import { authenticateDevice, revokeDevice } from "@/lib/client-auth";
+import { authenticateDevice, renameDevice, revokeDevice } from "@/lib/client-auth";
 import { jsonError } from "@/lib/http";
 
 export async function GET(request: Request) {
@@ -13,6 +13,17 @@ export async function GET(request: Request) {
         serverTime: new Date().toISOString(),
       },
     });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const device = await authenticateDevice(request);
+    const body = await request.json() as { deviceName?: unknown };
+    const updated = await renameDevice(device.deviceID, body.deviceName);
+    return Response.json({ ok: true, data: updated });
   } catch (error) {
     return jsonError(error);
   }

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { Check, Copy, ExternalLink, LoaderCircle, Plus, Smartphone, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Device = { id: string; name: string; createdAt: number; lastSeenAt: number };
 type ActivationResponse = { activationID: string; activationCode: string; activationURL: string; activationQRCode: string; publicAPIURL: string; remainingSeconds: number };
@@ -25,10 +25,13 @@ export function ClientManagement() {
   const [now, setNow] = useState<number>();
   const [revokeTarget, setRevokeTarget] = useState<Device>();
   const [toast, setToast] = useState("");
+  const devicesAtIssue = useRef<{ ids: Set<string>; ready: boolean }>({ ids: new Set(), ready: false });
+  const activationRef = useRef<Activation | undefined>(undefined);
+  useEffect(() => { activationRef.current = activation; }, [activation]);
   async function load() { try { setDevices(await api<Device[]>("/api/v1/client/devices")); setMessage(""); } catch (error) { setMessage(error instanceof Error ? error.message : "加载失败"); } finally { setLoading(false); } }
   useEffect(() => {
     let active = true;
-    const refresh = () => { setNow(Date.now()); void api<Device[]>("/api/v1/client/devices").then((value) => { if (active) { setDevices(value); setMessage(""); setLoading(false); } }).catch((error) => { if (active) { setMessage(error instanceof Error ? error.message : "加载失败"); setLoading(false); } }); };
+    const refresh = () => { setNow(Date.now()); void api<Device[]>("/api/v1/client/devices").then((value) => { if (!active) return; setDevices(value); setMessage(""); setLoading(false); const issued = devicesAtIssue.current; if (activationRef.current && issued.ready && value.some((device) => !issued.ids.has(device.id))) { setActivation(undefined); setToast("客户端已连接"); } }).catch((error) => { if (active) { setMessage(error instanceof Error ? error.message : "加载失败"); setLoading(false); } }); };
     refresh(); const timer = window.setInterval(refresh, 30_000);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
@@ -39,14 +42,14 @@ export function ClientManagement() {
   }, [toast]);
   useEffect(() => {
     if (!activation) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const timer = window.setInterval(() => { const current = Date.now(); setNow(current); setActivation((value) => value && value.localExpiresAt <= current ? undefined : value); }, 1000);
     return () => window.clearInterval(timer);
   }, [activation]);
   useEffect(() => {
     if (!activation) return;
     let mounted = true;
     const check = () => void api<{ active: boolean }>(`/api/v1/client/activation-codes?id=${encodeURIComponent(activation.activationID)}`).then((value) => {
-      if (mounted && !value.active) { setActivation(undefined); setToast("客户端已连接"); void load(); }
+      if (mounted && !value.active) { const used = activation.localExpiresAt > Date.now(); setActivation(undefined); if (used) setToast("客户端已连接"); void load(); }
     }).catch(() => {});
     check();
     const timer = window.setInterval(check, 2000);
@@ -64,6 +67,7 @@ export function ClientManagement() {
 
   async function create() {
     setBusy("create"); setMessage("");
+    devicesAtIssue.current = { ids: new Set(devices.map((device) => device.id)), ready: !loading };
     try {
       const value = await api<ActivationResponse>("/api/v1/client/activation-codes", { method: "POST", body: "{}" });
       setActivation({ ...value, localExpiresAt: Date.now() + value.remainingSeconds * 1000 });
@@ -82,7 +86,7 @@ export function ClientManagement() {
   return <main className="mx-auto w-full max-w-[520px] space-y-3 px-4 py-5">
     <section className="surface-card p-5">
       <div className="flex items-center justify-between"><div><h2 className="text-base font-semibold">连接客户端</h2><p className="mt-1 text-xs text-[#77736b]">在 iPhone 上扫码或打开连接链接</p></div><button onClick={() => void create()} disabled={busy !== ""} className="primary-button h-10 bg-[#6b7562] px-4">{busy === "create" ? <LoaderCircle className="animate-spin" size={17} /> : <><Plus className="mr-1.5 inline" size={16} />添加</>}</button></div>
-      {activation && <div className="mt-4 rounded-2xl bg-white p-3"><div className="grid grid-cols-[132px_1fr] items-center gap-4"><Image src={activation.activationQRCode} alt="OpenHome 激活二维码" width={132} height={132} unoptimized className="rounded-xl" /><div className="min-w-0"><div className="flex items-center justify-between gap-2"><p className="text-[10px] text-[#918d84]">激活码</p><span className={`font-mono text-[11px] ${activationSeconds ? "text-[#59634f]" : "text-[#a65d48]"}`}>{activationSeconds ? `${String(Math.floor(activationSeconds / 60)).padStart(2, "0")}:${String(activationSeconds % 60).padStart(2, "0")}` : "已过期"}</span></div><strong className="mt-1 block font-mono text-xl tracking-[.12em]">{activation.activationCode}</strong><button onClick={() => void copy(activation.activationCode, "激活码")} disabled={!activationSeconds} className="mt-3 flex min-h-8 items-center gap-1.5 text-xs font-medium text-[#59634f] disabled:opacity-40"><Copy size={14} />复制激活码</button></div></div><div className="mt-3 flex items-center gap-3 rounded-xl bg-[#f5f4ef] px-3 py-2.5"><div className="min-w-0 flex-1"><p className="text-[10px] text-[#918d84]">OpenHome 地址</p><p className="mt-0.5 truncate font-mono text-xs text-[#4f4c46]">{activation.publicAPIURL}</p></div><button onClick={() => void copy(activation.publicAPIURL, "OpenHome 地址")} className="icon-button shrink-0 text-[#59634f]" aria-label="复制 OpenHome 地址"><Copy size={15} /></button></div><div className="mt-3 grid grid-cols-2 gap-2"><button onClick={() => void copy(activation.activationURL, "连接链接")} disabled={!activationSeconds} className="secondary-button h-10 text-xs disabled:opacity-40"><Copy className="mr-1.5 inline" size={14} />复制连接链接</button><a href={activationSeconds ? activation.activationURL : undefined} aria-disabled={!activationSeconds} className={`primary-button grid h-10 place-items-center bg-[#6b7562] text-xs ${activationSeconds ? "" : "pointer-events-none opacity-40"}`}><span><ExternalLink className="mr-1.5 inline" size={14} />在 iPhone 上打开</span></a></div></div>}
+      {activation && (now === undefined || activation.localExpiresAt > now) && <div className="mt-4 rounded-2xl bg-white p-3"><div className="grid grid-cols-[132px_1fr] items-center gap-4"><Image src={activation.activationQRCode} alt="OpenHome 激活二维码" width={132} height={132} unoptimized className="rounded-xl" /><div className="min-w-0"><div className="flex items-center justify-between gap-2"><p className="text-[10px] text-[#918d84]">激活码</p><span className={`font-mono text-[11px] ${activationSeconds ? "text-[#59634f]" : "text-[#a65d48]"}`}>{activationSeconds ? `${String(Math.floor(activationSeconds / 60)).padStart(2, "0")}:${String(activationSeconds % 60).padStart(2, "0")}` : "已过期"}</span></div><strong className="mt-1 block font-mono text-xl tracking-[.12em]">{activation.activationCode}</strong><button onClick={() => void copy(activation.activationCode, "激活码")} disabled={!activationSeconds} className="mt-3 flex min-h-8 items-center gap-1.5 text-xs font-medium text-[#59634f] disabled:opacity-40"><Copy size={14} />复制激活码</button></div></div><div className="mt-3 flex items-center gap-3 rounded-xl bg-[#f5f4ef] px-3 py-2.5"><div className="min-w-0 flex-1"><p className="text-[10px] text-[#918d84]">OpenHome 地址</p><p className="mt-0.5 truncate font-mono text-xs text-[#4f4c46]">{activation.publicAPIURL}</p></div><button onClick={() => void copy(activation.publicAPIURL, "OpenHome 地址")} className="icon-button shrink-0 text-[#59634f]" aria-label="复制 OpenHome 地址"><Copy size={15} /></button></div><div className="mt-3 grid grid-cols-2 gap-2"><button onClick={() => void copy(activation.activationURL, "连接链接")} disabled={!activationSeconds} className="secondary-button h-10 text-xs disabled:opacity-40"><Copy className="mr-1.5 inline" size={14} />复制连接链接</button><a href={activationSeconds ? activation.activationURL : undefined} aria-disabled={!activationSeconds} className={`primary-button grid h-10 place-items-center bg-[#6b7562] text-xs ${activationSeconds ? "" : "pointer-events-none opacity-40"}`}><span><ExternalLink className="mr-1.5 inline" size={14} />在 iPhone 上打开</span></a></div></div>}
     </section>
     <section className="surface-card p-5">
       <div className="flex items-center justify-between"><h2 className="text-base font-semibold">已连接客户端</h2><span className="rounded-full bg-[#e7eee5] px-2 py-1 text-[10px] font-semibold text-[#59634f]">活跃 {activeDevices.length}</span></div>
@@ -96,7 +100,7 @@ export function ClientManagement() {
 }
 
 function DeviceRow({ device, active, onRevoke }: { device: Device; active: boolean; onRevoke: (device: Device) => void }) {
-  return <div className="flex items-center gap-3 py-3"><span className={`relative grid h-10 w-10 place-items-center rounded-xl ${active ? "bg-[#e7eee5] text-[#59634f]" : "bg-[#ece8e0] text-[#8d887f]"}`}><Smartphone size={18} />{active && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#65a46d] ring-2 ring-[#e7eee5]" />}</span><div className="min-w-0 flex-1"><strong className="block truncate text-sm">{device.name}</strong><span className="text-[10px] text-[#918d84]">最后活跃 {formatActivity(device.lastSeenAt)}</span></div><button onClick={() => onRevoke(device)} aria-label={`撤销 ${device.name}`} className="icon-button text-[#a65d48]"><Trash2 size={16} /></button></div>;
+  return <div className="flex items-center gap-3 py-3"><span className={`relative grid h-10 w-10 place-items-center rounded-xl ${active ? "bg-[#e7eee5] text-[#59634f]" : "bg-[#ece8e0] text-[#8d887f]"}`}><Smartphone size={18} />{active && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#65a46d] ring-2 ring-[#e7eee5]" />}</span><div className="min-w-0 flex-1"><strong className="block truncate text-sm">{device.name}</strong><span className="block text-xs text-[#56534d]">设备代号 {device.id.slice(-4).toUpperCase()}</span><span className="text-[10px] text-[#918d84]">最后活跃 {formatActivity(device.lastSeenAt)}</span></div><button onClick={() => onRevoke(device)} aria-label={`撤销 ${device.name}`} className="icon-button text-[#a65d48]"><Trash2 size={16} /></button></div>;
 }
 
 function formatActivity(value: number) {

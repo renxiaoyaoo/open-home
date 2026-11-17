@@ -113,6 +113,11 @@ function text(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+/** Prefer the name the account API exposes over a stale model string. */
+export function vehicleDisplayName(raw: RawVehicle) {
+  return text(raw.autoAlias) || text(raw.aliasName) || text(raw.autoNickName) || text(raw.autoName) || text(raw.vehicleName) || text(raw.name) || text(raw.seriesName) || text(raw.carSeriesName) || text(raw.modelName) || text(raw.carTypeName) || "车辆";
+}
+
 function chargingState(value: unknown): VehicleSummary["chargingState"] {
   const state = String(value ?? "").toLowerCase();
   if (["1", "charging", "charge"].includes(state)) return "charging";
@@ -133,6 +138,11 @@ function healthState(value: unknown): VehicleHealthState {
   if (number !== undefined && number > 0) return "warning";
   const state = String(value ?? "").toLowerCase();
   return ["normal", "ok"].includes(state) ? "normal" : ["warning", "error", "fault"].includes(state) ? "warning" : "unknown";
+}
+
+function trendOrder(value: string) {
+  const parsed = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value.replace(" ", "T"));
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
 }
 
 function timestamp(value: unknown) {
@@ -169,7 +179,7 @@ export function normalizeVehicleSummary(raw: RawVehicle, fallbackId = "") : Vehi
   };
   return {
     id,
-    name: text(raw.name) || text(raw.vehicleName) || text(raw.modelName) || "车辆",
+    name: vehicleDisplayName(raw),
     powerState: powerGear === 3 || ["1", "on", "running"].includes(power) ? "on" : powerGear === 1 || ["0", "off", "stopped"].includes(power) ? "off" : "unknown",
     estimatedRangeKm: electricRangeKm !== undefined && fuelRangeKm !== undefined ? electricRangeKm + fuelRangeKm : nonnegative(raw.totalEnduranceMileage) ?? nonnegative(raw.enduranceMileage),
     electricRangeKm,
@@ -247,7 +257,7 @@ export function normalizeDetailedVehicleEnergy(recentInput: RawVehicle, historic
     breakdown: Object.values(breakdown).some((value) => value !== undefined && value > 0) ? breakdown : undefined,
     recentTrend: trend.map((item, index) => item && typeof item === "object" ? {
       date: text((item as RawVehicle).date) || text((item as RawVehicle).energyDate) || "", equivalentFuelLitresPer100Km: nonnegative((item as RawVehicle).lastFee) ?? nonnegative((item as RawVehicle).fee), peerAverageLitresPer100Km: nonnegative(peers[index]?.lastFee) ?? nonnegative(peers[index]?.fee) ?? nonnegative(peers[0]?.lastFee) ?? nonnegative(peers[0]?.fee),
-    } : { date: "" }).filter((item) => item.date),
+    } : { date: "" }).filter((item) => item.date).sort((left, right) => trendOrder(left.date) - trendOrder(right.date) || left.date.localeCompare(right.date)),
     totalDistanceKm,
     cumulativeRankPercent: leadingPercent(sum),
     cumulativeEquivalentFuelLitresPer100Km: nonnegative(sum.fee), cumulativeElectricityKwhPer100Km: nonnegative(sum.elect), cumulativeFuelLitresPer100Km: nonnegative(sum.fuel),
