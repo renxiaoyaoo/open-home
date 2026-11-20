@@ -74,7 +74,7 @@ struct CenterAccountClient: Sendable {
 
     private func profile(path: String) async throws -> CenterAccount {
         let response: Envelope<Profile> = try await client.get(path)
-        return .init(id: response.data.accountId, displayName: response.data.displayName ?? "已连接账号")
+        return .init(id: response.data.accountId, displayName: response.data.displayName ?? "账号")
     }
 
     private struct GateAccount: Decodable, Sendable { let id: String; let username: String }
@@ -124,8 +124,10 @@ private final class CenterAccountModel {
         return succeeded
     }
 
-    func signOut(provider: ProviderID, accountID: String) async {
-        if await perform({ try await client.signOut(provider: provider, accountID: accountID) }) { await load(provider) }
+    func signOut(provider: ProviderID, accountID: String) async -> Bool {
+        let succeeded = await perform { try await client.signOut(provider: provider, accountID: accountID) }
+        if succeeded { await load(provider) }
+        return succeeded
     }
 
     private func perform(_ operation: () async throws -> Void) async -> Bool {
@@ -144,6 +146,7 @@ struct CenterAccountManagementView: View {
     @State private var pendingGateID: String?
     @State private var showingLogin = false
     @State private var confirmingLogout: CenterAccount?
+    @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
     private let providers: [ProviderID]
 
@@ -170,10 +173,20 @@ struct CenterAccountManagementView: View {
             .navigationTitle("账号管理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
-            .task(id: provider) { resetLogin(); await model.load(provider) }
-            .refreshable { await model.load(provider) }
+            .task(id: provider) { resetLogin(); await finishAccountLoad() }
+            .refreshable { await finishAccountLoad() }
             .confirmationDialog("退出此账号？", isPresented: Binding(get: { confirmingLogout != nil }, set: { if !$0 { confirmingLogout = nil } }), titleVisibility: .visible) {
-                Button("确认退出", role: .destructive) { if let account = confirmingLogout { Task { await model.signOut(provider: provider, accountID: account.id); confirmingLogout = nil } } }
+                Button("确认退出", role: .destructive) {
+                    if let account = confirmingLogout {
+                        Task {
+                            if await model.signOut(provider: provider, accountID: account.id) {
+                                let empty = model.accounts[provider]?.isEmpty != false
+                                appModel.discardModuleCache(provider, blockReload: empty)
+                            }
+                            confirmingLogout = nil
+                        }
+                    }
+                }
                 Button("取消", role: .cancel) { confirmingLogout = nil }
             }
         }
@@ -181,10 +194,10 @@ struct CenterAccountManagementView: View {
     }
 
     @ViewBuilder private var accountSection: some View {
-        Section("已连接") {
-            if model.loadingProviders.contains(provider) { HStack { Spacer(); ProgressView(); Spacer() } }
-            else if currentAccounts.isEmpty { Text("尚未登录").foregroundStyle(.secondary) }
-            else {
+        if model.loadingProviders.contains(provider) {
+            Section { HStack { Spacer(); ProgressView(); Spacer() } }
+        } else if !currentAccounts.isEmpty {
+            Section("已登录") {
                 ForEach(currentAccounts) { account in
                     HStack {
                         Label(account.displayName, systemImage: moduleSymbol(provider))
@@ -192,8 +205,8 @@ struct CenterAccountManagementView: View {
                         Button("退出", role: .destructive) { confirmingLogout = account }.disabled(model.isBusy)
                     }
                 }
+                if provider == .gate && !showingLogin { Button("添加账号", systemImage: "plus") { showingLogin = true } }
             }
-            if provider == .gate && !showingLogin { Button("添加账号", systemImage: "plus") { showingLogin = true } }
         }
     }
 
@@ -221,6 +234,14 @@ struct CenterAccountManagementView: View {
         return provider == .gate ? showingLogin || currentAccounts.isEmpty : currentAccounts.isEmpty
     }
 
+    private func finishAccountLoad() async {
+        await model.load(provider)
+        guard !model.loadingProviders.contains(provider), model.accounts[provider]?.isEmpty != false else { return }
+        let message = model.message ?? ""
+        guard message.isEmpty || message.contains("登录") else { return }
+        appModel.discardModuleCache(provider)
+    }
+
     private func requestCode() async {
         if provider == .gate, pendingGateID == nil { pendingGateID = "og-\(UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12))" }
         _ = await model.requestCode(provider: provider, mobile: mobile, accountID: pendingGateID)
@@ -228,7 +249,10 @@ struct CenterAccountManagementView: View {
 
     private func signIn() async {
         if provider == .gate, pendingGateID == nil { pendingGateID = "og-\(UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "").prefix(12))" }
-        if await model.signIn(provider: provider, accountID: pendingGateID, mobile: mobile, secret: secret) { resetLogin() }
+        if await model.signIn(provider: provider, accountID: pendingGateID, mobile: mobile, secret: secret) {
+            appModel.restoreModule(provider)
+            resetLogin()
+        }
     }
 
     private func resetLogin() { mobile = ""; secret = ""; pendingGateID = nil; showingLogin = false }

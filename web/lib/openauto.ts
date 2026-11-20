@@ -113,9 +113,49 @@ function text(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-/** Prefer the name the account API exposes over a stale model string. */
+const ownerAliasKeys = ["autoAlias", "aliasName", "autoNickName"] as const;
+const ownerAliasContainers = ["autoInfo", "vehicleInfo", "diLinkAutoInfo", "carInfo", "data"] as const;
+
+function ownerAlias(value: unknown, depth = 0): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 2) return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ownerAliasKeys) {
+    const named = text(record[key]);
+    if (named) return named;
+  }
+  for (const key of ownerAliasContainers) {
+    const named = ownerAlias(record[key], depth + 1);
+    if (named) return named;
+  }
+  return undefined;
+}
+
+/** Owner-edited name from the vehicle list. Model strings are only a fallback. */
 export function vehicleDisplayName(raw: RawVehicle) {
-  return text(raw.autoAlias) || text(raw.aliasName) || text(raw.autoNickName) || text(raw.autoName) || text(raw.vehicleName) || text(raw.name) || text(raw.seriesName) || text(raw.carSeriesName) || text(raw.modelName) || text(raw.carTypeName) || "车辆";
+  return ownerAlias(raw) || text(raw.autoName) || text(raw.vehicleName) || text(raw.name) || text(raw.seriesName) || text(raw.carSeriesName) || text(raw.modelName) || text(raw.carTypeName) || "车辆";
+}
+
+export function vehicleListItems(decoded: unknown): RawVehicle[] {
+  if (Array.isArray(decoded)) return decoded.filter((item): item is RawVehicle => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+  if (!decoded || typeof decoded !== "object") return [];
+  const record = decoded as RawVehicle;
+  if (Array.isArray(record.diLinkAutoInfoList)) return vehicleListItems(record.diLinkAutoInfoList);
+  for (const key of ownerAliasContainers) {
+    const nested = record[key];
+    if (nested && typeof nested === "object") {
+      const items = vehicleListItems(nested);
+      if (items.length) return items;
+    }
+  }
+  return [];
+}
+
+/** The condition payload carries the model. The list item carries the name edited in the app. */
+export function namedVehicleSummary(condition: RawVehicle, listItem: RawVehicle | undefined, fallbackId = "") {
+  const summary = normalizeVehicleSummary(condition, fallbackId);
+  const listed = listItem ? vehicleDisplayName(listItem) : undefined;
+  if (listed && listed !== "车辆") summary.name = listed;
+  return summary;
 }
 
 function chargingState(value: unknown): VehicleSummary["chargingState"] {

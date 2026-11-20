@@ -37,14 +37,34 @@ final class DryerViewModel {
         switch snapshot?.state { case .running, .scheduled: return false; default: return snapshot?.state != .off }
     }
 
-    init(provider: any DryerProvider, registrar: (any LiveActivityRegistrar)? = nil) { self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar) }
+    init(provider: any DryerProvider, registrar: (any LiveActivityRegistrar)? = nil) {
+        self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar)
+        if let cached = ModuleContentStore.load("dryer.json", as: DryerCache.self) { snapshot = cached.snapshot; programs = cached.programs }
+    }
+
+    func discardDisplayedContent() { snapshot = nil; programs = []; message = nil }
 
     func refresh(showLoading: Bool = true) async {
+        let revision = ModuleContentStore.revision
+        guard !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
         guard !refreshInFlight, !isOperating else { return }
         refreshInFlight = true
         if showLoading { isLoading = true }
         defer { refreshInFlight = false; if showLoading { isLoading = false } }
-        do { let value = try await provider.snapshot(); if value.programID != snapshot?.programID { programPresentation = nil }; snapshot = value; parameterValues = value.parameters; message = nil; await updateLiveStatus(value); if programs.isEmpty { programs = (try? await provider.programs()) ?? [] } }
+        do {
+            let value = try await provider.snapshot()
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
+            if value.programID != snapshot?.programID { programPresentation = nil }
+            snapshot = value; parameterValues = value.parameters; message = nil; await updateLiveStatus(value)
+            if programs.isEmpty { programs = (try? await provider.programs()) ?? [] }
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
+            ModuleContentStore.save("dryer.json", DryerCache(snapshot: value, programs: programs))
+        } catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
+        catch let error as APIError {
+            if case .providerAuthenticationRequired = error { discardDisplayedContent() }
+            message = error.localizedDescription
+        }
         catch { message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
     }
     func select(_ program: DryerProgram) async {
@@ -109,6 +129,7 @@ final class DryerViewModel {
 }
 
 struct DryerView: View {
+    @Environment(AppModel.self) private var appModel
     @State private var model: DryerViewModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmsPowerOff = false
@@ -116,15 +137,89 @@ struct DryerView: View {
     init(provider: any DryerProvider, registrar: (any LiveActivityRegistrar)? = nil) { _model = State(initialValue: DryerViewModel(provider: provider, registrar: registrar)) }
 
     var body: some View {
-        ScrollView {
+        Group {
             if let value = model.snapshot {
-                VStack(spacing: 12) { statusCard(value); scheduleCard(value); programCard; if let message = model.message { Text(message).font(.caption).foregroundStyle(.red) } }.padding(14).frame(maxWidth: 520)
-            } else if model.isLoading { ProgressView().padding(.top, 100) }
-            else { ContentUnavailableView("设备暂时未加载", systemImage: "washer", description: Text(model.message ?? "下拉重试")) }
+                List {
+                    Section {
+                        infoRow("状态", value.state.label, tone: statusTone(value.state.label))
+                        LabeledContent("剩余") {
+                            digitalClock(value.remainingMinutes, blinking: value.state == .running || value.state == .paused || value.state == .scheduled)
+                                .font(.title3.weight(.semibold)).monospacedDigit()
+                        }
+                        infoRow("程序", value.programName ?? "未选择程序")
+                    } header: {
+                        Text(value.name).font(.title3.weight(.semibold)).foregroundStyle(.primary).textCase(nil)
+                    }
+                    Section {
+                        HStack(spacing: 12) {
+                            Button { if value.state == .off { Task { await model.togglePower() } } else { confirmsPowerOff = true } } label: {
+                                Label(value.state == .off ? "开机" : "关机", systemImage: "power").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(model.isOperating)
+                            Button { Task { await model.primaryAction() } } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: actionSymbol(value.state)).symbolRenderingMode(.monochrome)
+                                    Text(actionTitle(value.state))
+                                }
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                            .disabled(model.isOperating || value.state == .off)
+                        }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                    Section("预约") {
+                        infoRow("程序", model.selectedProgram?.name ?? "请选择程序")
+                        DatePicker("开始", selection: $model.scheduledStart, displayedComponents: .hourAndMinute).disabled(value.state == .scheduled || value.state == .running)
+                        infoRow("预计完成", model.expectedFinish(for: model.selectedProgram)?.formatted(date: .omitted, time: .shortened) ?? "—")
+                    }
+                    Section {
+                        Button { Task { await model.schedule() } } label: {
+                            Text(value.state == .scheduled ? "已预约" : "确认预约").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .disabled(model.isOperating || value.state == .scheduled || model.selectedProgram == nil || value.state == .running || value.state == .off)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                    Section("程序") {
+                        Picker("分类", selection: $model.programGroup) { ForEach(["日常程序", "特定材质", "DIY"], id: \.self) { Text($0).tag($0) } }
+                            .pickerStyle(.segmented)
+                            .onChange(of: model.programGroup) { _, _ in model.showsAllPrograms = false }
+                        ForEach(model.visiblePrograms) { program in
+                            let selected = program.value == model.snapshot?.programID && (program.group != "DIY" || program.name == model.snapshot?.programName)
+                            Button { Task { await model.select(program) } } label: {
+                                HStack {
+                                    Text(program.name).foregroundStyle(.primary)
+                                    Spacer()
+                                    Text("\(program.minutes) 分钟").foregroundStyle(.secondary)
+                                    if selected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+                                }
+                            }
+                            .disabled(!model.canChangeProgram)
+                        }
+                        if model.programGroup != "DIY", model.programs.filter({ $0.group == model.programGroup }).count > 4 {
+                            Button(model.showsAllPrograms ? "收起" : "更多") { model.showsAllPrograms.toggle() }
+                        }
+                        if let selected = model.selectedProgram, selected.group == model.programGroup, !(selected.parameters ?? []).isEmpty, model.canChangeProgram {
+                            Button("参数设置") { configuringProgram = selected }
+                        }
+                    }
+                    if let message = model.message { Section { Text(message).foregroundStyle(.red) } }
+                }
+                .listStyle(.insetGrouped)
+            } else if model.isLoading { ProgressView("正在读取干衣机").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { OpenHomeUnavailable(title: "还没有干衣机内容", systemImage: "washer", description: model.message ?? "连接恢复后可以重新读取。", actionTitle: "重试") { Task { await model.refresh() } } }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let value = model.snapshot { controlCard(value).padding(.horizontal, 14).padding(.vertical, 8).background(.ultraThinMaterial) }
-        }
+        .onChange(of: appModel.sessionRevision) { _, _ in model.discardDisplayedContent() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             await model.refresh(showLoading: model.snapshot == nil)
@@ -145,11 +240,31 @@ struct DryerView: View {
         }
     }
 
+    private func programButton(_ program: DryerProgram, selected: Bool) -> some View {
+        let label = VStack(alignment: .leading, spacing: 2) {
+            Text(program.name).font(.body).lineLimit(1)
+            Text("\(program.minutes) 分钟").font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+        .padding(.horizontal, 12)
+        return Group {
+            if selected {
+                Button { Task { await model.select(program) } } label: { label }.buttonStyle(.borderedProminent).disabled(!model.canChangeProgram)
+            } else {
+                Button { Task { await model.select(program) } } label: { label }.buttonStyle(.bordered).disabled(!model.canChangeProgram)
+            }
+        }
+    }
     private func statusCard(_ value: DryerSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .top) { VStack(alignment: .leading, spacing: 4) { Text(value.name).font(.caption).foregroundStyle(.white.opacity(0.7)); Text(value.programName ?? "未选择程序").font(.title2.bold()).lineLimit(2) }; Spacer(); Image(systemName: model.isLoading ? "arrow.triangle.2.circlepath" : "washer").font(.title2) }
-            HStack(alignment: .lastTextBaseline) { VStack(alignment: .leading, spacing: 4) { Text("当前状态").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(value.state.label).font(.title.bold()) }; Spacer(); VStack(alignment: .trailing, spacing: 4) { Text("剩余时间").font(.caption).foregroundStyle(.white.opacity(0.65)); digitalClock(value.remainingMinutes, blinking: value.state == .running || value.state == .paused || value.state == .scheduled).font(.system(.largeTitle, design: .monospaced, weight: .semibold)).minimumScaleFactor(0.75).lineLimit(1) } }
-        }.padding(20).foregroundStyle(.white).background(Color.openHomeLiving, in: RoundedRectangle(cornerRadius: 18))
+        VStack(alignment: .leading, spacing: 8) {
+            Text(value.programName ?? "未选择程序").font(.title2.weight(.semibold)).lineLimit(2)
+            LabeledContent("当前状态", value: value.state.label)
+            HStack(alignment: .firstTextBaseline) {
+                Text("剩余时间").foregroundStyle(.secondary)
+                Spacer()
+                digitalClock(value.remainingMinutes, blinking: value.state == .running || value.state == .paused || value.state == .scheduled).font(.largeTitle.weight(.medium)).monospacedDigit().minimumScaleFactor(0.75).lineLimit(1)
+            }
+        }
     }
     private func scheduleCard(_ value: DryerSnapshot) -> some View {
         VStack(spacing: 10) {
@@ -158,8 +273,8 @@ struct DryerView: View {
                 VStack(alignment: .leading) { Text("开始").font(.caption2).foregroundStyle(.secondary); DatePicker("开始", selection: $model.scheduledStart, displayedComponents: .hourAndMinute).labelsHidden().disabled(value.state == .scheduled || value.state == .running) }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading) { Text("预计完成").font(.caption2).foregroundStyle(.secondary); Text(model.expectedFinish(for: model.selectedProgram)?.formatted(date: .omitted, time: .shortened) ?? "—").font(.headline.monospacedDigit()) }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            Button { Task { await model.schedule() } } label: { Label(value.state == .scheduled ? "已预约" : "确认预约", systemImage: "calendar.badge.checkmark").frame(maxWidth: .infinity) }.buttonStyle(OpenHomePrimaryButton()).disabled(model.isOperating || value.state == .scheduled || model.selectedProgram == nil || value.state == .running || value.state == .off)
-        }.padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
+            Button { Task { await model.schedule() } } label: { Label(value.state == .scheduled ? "已预约" : "确认预约", systemImage: "calendar.badge.checkmark").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).controlSize(.large).disabled(model.isOperating || value.state == .scheduled || model.selectedProgram == nil || value.state == .running || value.state == .off)
+        }
     }
     private var programCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -173,16 +288,20 @@ struct DryerView: View {
             if model.programGroup != "DIY", model.programs.filter({ $0.group == model.programGroup }).count > 4 { Button(model.showsAllPrograms ? "收起" : "更多") { model.showsAllPrograms.toggle() }.font(.caption.bold()).frame(maxWidth: .infinity) }
             if let selected = model.selectedProgram, selected.group == model.programGroup, !(selected.parameters ?? []).isEmpty, model.canChangeProgram {
                 Button { configuringProgram = selected } label: {
-                    HStack { VStack(alignment: .leading, spacing: 2) { Text(selected.name).font(.subheadline.bold()); if let description = selected.description { Text(description).font(.caption2).foregroundStyle(.secondary).lineLimit(2) } }; Spacer(); Text("参数设置").font(.caption.bold()).foregroundStyle(Color.openHomeLiving); Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary) }.padding(12).background(Color.openHomeLiving.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                }.buttonStyle(.plain)
+                    HStack { VStack(alignment: .leading, spacing: 2) { Text(selected.name).font(.subheadline.bold()); if let description = selected.description { Text(description).font(.caption2).foregroundStyle(.secondary).lineLimit(2) } }; Spacer(); Text("参数设置").font(.subheadline); Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.secondary) }
+                }
             }
-        }.padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
+        }
     }
     private func controlCard(_ value: DryerSnapshot) -> some View {
         HStack(spacing: 10) {
-            Button { if value.state == .off { Task { await model.togglePower() } } else { confirmsPowerOff = true } } label: { Label(value.state == .off ? "开机" : "关机", systemImage: "power").frame(maxWidth: .infinity) }.buttonStyle(.bordered).tint(.openHomeLiving).disabled(model.isOperating)
-            Button { Task { await model.primaryAction() } } label: { Label(actionTitle(value.state), systemImage: actionSymbol(value.state)).frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(.openHomeLiving).disabled(model.isOperating || value.state == .off)
-        }.frame(maxWidth: .infinity).controlSize(.large)
+            Button { if value.state == .off { Task { await model.togglePower() } } else { confirmsPowerOff = true } } label: { Label(value.state == .off ? "开机" : "关机", systemImage: "power") }.buttonStyle(.bordered).disabled(model.isOperating)
+            Spacer()
+            Button { Task { await model.primaryAction() } } label: { Label(actionTitle(value.state), systemImage: actionSymbol(value.state)) }.buttonStyle(.borderedProminent).disabled(model.isOperating || value.state == .off)
+        }
+    }
+    private func infoRow(_ title: String, _ value: String, tone: Color = .secondary) -> some View {
+        LabeledContent(title) { Text(value).foregroundStyle(tone) }
     }
     private func digitalClock(_ minutes: Int?, blinking: Bool) -> some View {
         let value = max(0, minutes ?? 0); let hours = String(format: "%02d", value / 60); let remainder = String(format: "%02d", value % 60)
@@ -241,5 +360,6 @@ private struct DryerProgramSettingsView: View {
     @MainActor private func submit() async { isApplying = true; message = nil; let succeeded = await apply(selection); isApplying = false; if succeeded { dismiss() } else { message = "参数设置失败，请重试" } }
 }
 
+private struct DryerCache: Codable { var snapshot: DryerSnapshot; var programs: [DryerProgram] }
 extension DryerSnapshot.State { var label: String { switch self { case .off: "已关机"; case .idle: "待机"; case .running: "烘干中"; case .paused: "已暂停"; case .scheduled: "已预约"; case .finished: "已完成"; case .fault: "设备故障" } } }
 private extension Color { static let openHomeLiving = Color(red: 0.286, green: 0.420, blue: 0.443) }

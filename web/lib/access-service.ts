@@ -1,7 +1,7 @@
 import { listActiveAccountIds, loadCentralSession, persistCentralSession } from "./central";
 import { createDoorHandle, readDoorHandle } from "./door-handle";
 import { centralDoors } from "./provider-service";
-import { doorPassword, doorSortBody, isAuthenticationExpired, isSuccess, openDoorBody, providerPost, upstreamMessage } from "./provider";
+import { doorPassword, doorSortBody, doorSortOrderBody, isAuthenticationExpired, isSuccess, openDoorBody, providerPost, upstreamMessage } from "./provider";
 import { accessRoute } from "./provider-bundle.ts";
 import { publicDoor } from "./public-door";
 
@@ -61,4 +61,37 @@ export async function setProviderDoorSelected(publicId: string, selected: boolea
   const saved = await providerPost("mobile", accessRoute("sortItems"), body, { ...options, encoding: "json", signingExclude: ["list"] });
   if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
   await persistCentralSession(door.accountId, session);
+}
+
+/** Save one community's commonly-used doors in a single sort so the order sticks. */
+export async function setProviderDoorOrder(ids: string[], previousIds: string[] = []) {
+  type Group = { accountId: string; communityId: number; ids: number[] };
+  const groups = new Map<string, Group>();
+  const ensure = (value: string) => {
+    const door = readDoorHandle(value);
+    const key = `${door.accountId}:${door.communityId}`;
+    const group = groups.get(key) ?? { accountId: door.accountId, communityId: door.communityId, ids: [] };
+    groups.set(key, group);
+    return group;
+  };
+  for (const id of previousIds) ensure(id);
+  for (const id of ids) {
+    const door = readDoorHandle(id);
+    const group = ensure(id);
+    if (!group.ids.includes(door.doorControlId)) group.ids.push(door.doorControlId);
+  }
+  const byAccount = new Map<string, Group[]>();
+  for (const group of groups.values()) byAccount.set(group.accountId, [...(byAccount.get(group.accountId) ?? []), group]);
+  for (const [accountId, list] of byAccount) {
+    const session = await loadCentralSession(accountId);
+    const options = { sessionId: session.sessionId, signingToken: session.signingToken, openId: session.openId, signing: "mobile-body" as const, context: session.context };
+    for (const group of list) {
+      const all = await providerPost("mobile", accessRoute("allItems"), { communityId: group.communityId }, { ...options, encoding: "multipart" });
+      if (!isSuccess(all)) throw new Error(upstreamMessage(all, "门禁查询失败"));
+      const body = doorSortOrderBody(all.data, group.communityId, group.ids);
+      const saved = await providerPost("mobile", accessRoute("sortItems"), body, { ...options, encoding: "json", signingExclude: ["list"] });
+      if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
+    }
+    await persistCentralSession(accountId, session);
+  }
 }

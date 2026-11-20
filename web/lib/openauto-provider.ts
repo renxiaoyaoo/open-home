@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, vehicleDisplayName, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
+import { energyVehicleMetadata, namedVehicleSummary, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, vehicleDisplayName, vehicleListItems, type VehicleEnergy, type VehicleSummary } from "./openauto.ts";
 import { autoRoute, providerBundle } from "./provider-bundle.ts";
 import { decryptEnvelope, encryptEnvelope } from "./openauto-codec.js";
 import { personalDisplayName } from "./account-name";
@@ -71,7 +71,7 @@ export class DirectOpenAutoProvider {
     const displayName = personalDisplayName(decoded) || `${phone.slice(0, 3)}****${phone.slice(-4)}`;
     return { userId, superId: superId || undefined, signToken, encryToken, displayName };
   }
-  private async rawVehicles() { const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new OpenAutoUpstreamError(String(response.code ?? "unknown"), String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); return (Array.isArray(decoded) ? decoded : Array.isArray(decoded.diLinkAutoInfoList) ? decoded.diLinkAutoInfoList : []) as Json[]; }
+  private async rawVehicles() { const inner = { appUiName: "", ...this.inner() }; const built = this.tokenRequest(inner); const response = await this.post(autoRoute("vehicles"), built.request); if (String(response.code) !== "0") throw new OpenAutoUpstreamError(String(response.code ?? "unknown"), String(response.message || "车辆加载失败")); const decoded = aesDecrypt(String(response.respondData || ""), built.contentKey); return vehicleListItems(decoded) as Json[]; }
   private publicVehicles(items: Json[]) { return items.filter((item) => item.vin).map((item) => ({ id: String(item.vin), name: vehicleDisplayName(item) })); }
   async vehicles() { return this.publicVehicles(await this.rawVehicles()); }
   private async rawSummary(vehicleId: string) {
@@ -110,7 +110,7 @@ export class DirectOpenAutoProvider {
     return climateTemperature(aesDecrypt(String(response.respondData || ""), built.contentKey));
   }
   private async buildSummary(vehicleId: string, vehicle: Json, raw: Json): Promise<OpenAutoSnapshot> {
-    const summary = normalizeVehicleSummary(raw, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
+    const summary = namedVehicleSummary(raw, vehicle, vehicleId); const fallbackEnergy = normalizeVehicleEnergy(raw);
     const [location, climate, historical, recent] = await Promise.allSettled([
       this.locationName(vehicleId),
       this.cabinTemperature(vehicleId),
@@ -136,11 +136,14 @@ export class DirectOpenAutoProvider {
     const [raw, items] = await Promise.all([this.rawSummary(vehicleId), this.rawVehicles()]);
     return await this.buildSummary(vehicleId, items.find((item) => String(item.vin) === vehicleId) || {}, raw);
   }
-  async liveStatus(vehicleId: string) { return normalizeVehicleSummary(await this.rawSummary(vehicleId), vehicleId); }
+  async liveStatus(vehicleId: string) {
+    const [raw, items] = await Promise.all([this.rawSummary(vehicleId), this.rawVehicles().catch(() => [] as Json[])]);
+    return namedVehicleSummary(raw, items.find((item) => String(item.vin) === vehicleId), vehicleId);
+  }
   async bootstrap() {
     const items = await this.rawVehicles(); const vehicles = this.publicVehicles(items); const vehicleId = vehicles[0]?.id;
     if (!vehicleId) return { vehicles, snapshot: undefined };
     const raw = await this.rawSummary(vehicleId);
-    return { vehicles, snapshot: { summary: normalizeVehicleSummary(raw, vehicleId), energy: normalizeVehicleEnergy(raw) } };
+    return { vehicles, snapshot: { summary: namedVehicleSummary(raw, items.find((item) => String(item.vin) === vehicleId), vehicleId), energy: normalizeVehicleEnergy(raw) } };
   }
 }

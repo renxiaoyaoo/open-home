@@ -91,3 +91,17 @@ widgets, and shortcuts. Credentials stay in Keychain.
 The first usable release is: connect to OpenHome, show common access resources,
 perform one-tap access, display temporary codes, and expose selected resources
 through Control Center.
+
+## Todo: vendor choice per module
+
+Not started. Do not build this until it is explicitly scheduled.
+
+The four modules (access, lock, living, and vehicle) need room for more than
+one upstream vendor:
+
+- Sign-in lets the user pick a brand. Each brand uses its own adapter and interface.
+- One brand can hold several accounts. The module aggregates those accounts.
+- The adapter that already ships is one brand, not the module itself.
+- Brand and vendor names stay out of public code, docs, and identifiers. The
+  public tree must not publish another company's marks. A vendor id can be an
+  opaque value supplied outside this repository.

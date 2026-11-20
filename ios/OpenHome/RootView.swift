@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import VisionKit
 
 struct RootView: View {
@@ -11,54 +12,48 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var model = model
-        NavigationStack {
-            Group {
-                if model.connection == nil {
-                    ConnectionSetupView()
-                } else {
-                    Group {
-                        if model.enabledModules.isEmpty {
-                            ContentUnavailableView {
-                                Label("尚未添加模块", systemImage: "square.grid.2x2")
-                            } actions: {
-                                Button("添加模块") { showingModules = true }
-                                    .buttonStyle(.borderedProminent)
-                            }
-                        } else {
-                            TabView(selection: $model.selectedModule) {
-                                ForEach(model.enabledModules) { module in
-                                    connectedContent(module)
-                                        .tabItem { Label(module.subtitle, systemImage: module.symbol) }
-                                        .tag(module)
-                                }
-                            }
-                            .toolbarBackground(Color.openHomeSurface, for: .tabBar)
-                            .toolbarBackground(.visible, for: .tabBar)
+        Group {
+            if model.connection == nil {
+                NavigationStack { ConnectionSetupView() }
+            } else if model.enabledModules.isEmpty {
+                NavigationStack {
+                    List {
+                        Section {
+                            Button("添加模块", systemImage: "plus") { showingModules = true }
+                        } footer: {
+                            Text("添加后会出现在底部。")
                         }
                     }
-                    .toolbar {
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            if model.connection?.mode == .center {
-                                Button("账号管理", systemImage: "person.crop.circle") { showingAccounts = true }
-                            }
-                            connectionMenu
+                    .navigationTitle("OpenHome")
+                    .toolbar { moduleToolbar }
+                }
+            } else {
+                TabView(selection: $model.selectedModule) {
+                    ForEach(model.enabledModules) { module in
+                        NavigationStack {
+                            connectedContent(module)
+                                .navigationTitle(module.subtitle)
+                                .navigationBarTitleDisplayMode(.large)
+                                .toolbar { moduleToolbar }
                         }
+                        .tabItem { Label(module.tabTitle, systemImage: module.symbol) }
+                        .tag(module)
                     }
                 }
             }
-            .background(Color.openHomeBackground)
-            .navigationBarTitleDisplayMode(.inline)
         }
-        .tint(.openHomeAccent)
         .confirmationDialog("退出当前账号？", isPresented: $confirmingDirectLogout, titleVisibility: .visible) {
             Button("确认退出", role: .destructive) { try? model.signOutSelectedDirectProvider() }
             Button("取消", role: .cancel) {}
         } message: { Text(model.selectedModule.rawValue) }
-        .confirmationDialog("断开 OpenHome？", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
-            Button("断开连接", role: .destructive) { Task { await model.disconnectCenter() } }
+        .confirmationDialog("断开连接？", isPresented: $confirmingDisconnect, titleVisibility: .visible) {
+            Button("断开连接", role: .destructive) {
+                if model.connection?.mode == .center { Task { await model.disconnectCenter() } }
+                else { model.disconnect() }
+            }
             Button("取消", role: .cancel) {}
-        } message: { Text("此设备的连接凭据将被移除") }
-        .task(id: model.connection?.deviceCredentialID) { await model.validateCenter() }
+        } message: { Text("此设备会退出 OpenHome，需要重新连接才能继续使用。") }
+        .task(id: model.connection?.deviceCredentialID) { await model.validateCenter(deviceName: UIDevice.current.name) }
         .onOpenURL { url in Task { await activate(url) } }
         .alert("无法连接 OpenHome", isPresented: Binding(get: { activationError != nil }, set: { if !$0 { activationError = nil } })) {
             Button("好") { activationError = nil }
@@ -84,7 +79,7 @@ struct RootView: View {
             return
         }
         do {
-            let result = try await ActivationClient().activate(baseURL: baseURL, code: code, deviceName: "iPhone")
+            let result = try await ActivationClient().activate(baseURL: baseURL, code: code, deviceName: UIDevice.current.name)
             model.connection = try ConnectionStore().saveCenter(result)
             await model.validateCenter()
             if case .connected = model.centerState { activationError = nil }
@@ -100,15 +95,26 @@ struct RootView: View {
         } else if let factory = model.providerFactory() {
             ProviderModuleView(module: module, factory: factory, directRegistry: model.connection?.mode == .direct ? model.directProviders : nil)
                 .id("\(module.id)-\(model.sessionRevision)")
+                .environment(model)
         } else {
             ModuleUnavailableView(module: module, message: "连接配置不可用")
         }
     }
 
+    @ToolbarContentBuilder private var moduleToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if model.connection?.mode == .center {
+                Button("账号管理", systemImage: "person.crop.circle") { showingAccounts = true }
+            }
+            connectionMenu
+        }
+    }
+
     private var connectionMenu: some View {
         Menu {
-                if case .connected = model.centerState {
-                    Label("已连接 OpenHome", systemImage: "checkmark.circle")
+                if case .connected(let session) = model.centerState {
+                    Label(session.deviceName, systemImage: "iphone")
+                    Label("设备代号 \(String(session.deviceId.suffix(4)).uppercased())", systemImage: "number")
                 } else if case .unavailable = model.centerState {
                     Button("重新检查连接", systemImage: "arrow.clockwise") { Task { await model.validateCenter() } }
                 } else if model.centerState == .revoked {
@@ -118,12 +124,11 @@ struct RootView: View {
                     Button("退出当前账号", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmingDirectLogout = true }
                 }
                 Button("管理模块", systemImage: "square.grid.2x2") { showingModules = true }
-                Button("切换连接方式", systemImage: "arrow.triangle.2.circlepath") {
-                    if model.connection?.mode == .center { confirmingDisconnect = true } else { model.disconnect() }
-                }
+                Button("断开连接", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmingDisconnect = true }
         } label: { Image(systemName: "ellipsis.circle") }
         .accessibilityLabel("连接管理")
     }
+
 }
 
 private struct ModuleManagementView: View {
@@ -290,7 +295,7 @@ private struct ConnectionSetupView: View {
         defer { isActivating = false }
         do {
             guard let baseURL = normalizedCenterURL(centerAddress) else { throw ActivationError.invalidAddress }
-            let result = try await ActivationClient().activate(baseURL: baseURL, code: activationCode, deviceName: "iPhone")
+            let result = try await ActivationClient().activate(baseURL: baseURL, code: activationCode, deviceName: UIDevice.current.name)
             model.connection = try ConnectionStore().saveCenter(result)
             await model.validateCenter()
             activationCode = ""
@@ -359,6 +364,7 @@ private struct ProviderModuleView: View {
     let module: AppModel.Module
     let factory: any ProviderFactory
     let directRegistry: DirectProviderRegistry?
+    @Environment(AppModel.self) private var appModel
     @State private var authenticationRevision = 0
 
     @ViewBuilder
@@ -393,7 +399,10 @@ private struct ProviderModuleView: View {
 
     @ViewBuilder private var authenticationFallback: some View {
         if let authenticator = try? directRegistry?.authenticator(module.providerID) {
-            DirectLoginView(module: module, authenticator: authenticator) { authenticationRevision += 1 }
+            DirectLoginView(module: module, authenticator: authenticator) {
+                appModel.restoreModule(module.providerID)
+                authenticationRevision += 1
+            }
                 .id(authenticationRevision)
         } else {
             ModuleUnavailableView(module: module, message: directRegistry == nil ? "连接配置不可用" : "登录组件不可用")
@@ -436,7 +445,7 @@ private struct DirectLoginView: View {
                         Button("获取验证码") { Task { await requestCode() } }.buttonStyle(.bordered).disabled(account.isEmpty || isBusy)
                     }
                 }
-                Button(isBusy ? "正在登录…" : "登录") { Task { await signIn() } }.buttonStyle(OpenHomePrimaryButton()).disabled(account.isEmpty || secret.isEmpty || isBusy)
+                Button(isBusy ? "正在登录…" : "登录") { Task { await signIn() } }.buttonStyle(.borderedProminent).controlSize(.large).disabled(account.isEmpty || secret.isEmpty || isBusy)
                 if let message { Text(message).font(.caption).foregroundStyle(.red) }
             }.padding(20).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 18)).padding(14).frame(maxWidth: 520)
         }
@@ -470,18 +479,90 @@ private struct ModuleUnavailableView: View {
     }
 }
 
-struct OpenHomePrimaryButton: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.fontWeight(.semibold).frame(maxWidth: .infinity).frame(height: 46).foregroundStyle(.white).background(Color.openHomeAccent.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 12))
+struct OpenHomeUnavailable: View {
+    let title: String
+    let systemImage: String
+    let description: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        if let actionTitle, let action {
+            ContentUnavailableView {
+                Label(title, systemImage: systemImage)
+            } description: {
+                Text(description)
+            }             actions: {
+                Button(actionTitle, action: action).buttonStyle(.bordered).controlSize(.large)
+            }
+        } else {
+            ContentUnavailableView {
+                Label(title, systemImage: systemImage)
+            } description: {
+                Text(description)
+            }
+        }
     }
+}
+
+func statusTone(_ value: String) -> Color {
+    if value.contains("异常") || value.contains("故障") || value == "离线" || value == "差" { return .red }
+    if value.contains("打开") || value.contains("未锁") || value.contains("较弱") || value == "信号一般" || value == "一般" || value == "设防中" || value == "已暂停" { return .orange }
+    switch value {
+    case "已熄火", "已启动", "行驶中", "充电中", "已关", "已关已锁", "正常", "已设防", "点亮", "信号良好", "良好", "在线", "纯电", "混动", "正在补能", "已充满", "好", "烘干中", "已完成", "已预约", "待机":
+        return .green
+    default:
+        return .secondary
+    }
+}
+
+func levelTone(_ percent: Double?) -> Color {
+    guard let percent else { return .secondary }
+    if percent <= 20 { return .red }
+    if percent < 50 { return .orange }
+    return .green
+}
+
+func batteryTone(_ raw: String?) -> Color {
+    guard let raw, let percent = Int(raw.filter(\.isNumber)) else { return .secondary }
+    return levelTone(Double(percent))
+}
+
+func openHomeDate(_ value: String) -> Date? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let date = VehicleDateParsing.parse(trimmed) { return date }
+    if let number = Double(trimmed), number > 1_000_000_000 {
+        return Date(timeIntervalSince1970: number > 10_000_000_000 ? number / 1000 : number)
+    }
+    let normalized = trimmed
+        .replacingOccurrences(of: "年", with: "-")
+        .replacingOccurrences(of: "月", with: "-")
+        .replacingOccurrences(of: "日", with: "")
+        .replacingOccurrences(of: "/", with: "-")
+        .replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
+        .trimmingCharacters(in: .whitespaces)
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .current
+    for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-M-d HH:mm:ss", "yyyy-M-d HH:mm", "MM-dd HH:mm:ss", "MM-dd HH:mm", "M-d HH:mm"] {
+        formatter.dateFormat = format
+        if let date = formatter.date(from: normalized) { return date }
+    }
+    return nil
+}
+
+func openHomeTimeText(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .current
+    formatter.dateFormat = "MM-dd HH:mm"
+    return formatter.string(from: date)
 }
 
 extension Color {
     static let openHomeBackground = Color(uiColor: .systemGroupedBackground)
     static let openHomeSurface = Color(uiColor: .secondarySystemGroupedBackground)
     static let openHomeAccent = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.455, green: 0.667, blue: 0.702, alpha: 1)
-            : UIColor(red: 0.286, green: 0.420, blue: 0.443, alpha: 1)
+        traits.userInterfaceStyle == .dark ? UIColor(red: 0.78, green: 0.74, blue: 0.68, alpha: 1) : UIColor(red: 0.435, green: 0.396, blue: 0.349, alpha: 1)
     })
 }

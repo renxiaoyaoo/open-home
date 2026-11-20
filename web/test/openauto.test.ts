@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { energyVehicleMetadata, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, vehicleDisplayName } from "../lib/openauto.ts";
+import { energyVehicleMetadata, namedVehicleSummary, normalizeDetailedVehicleEnergy, normalizeVehicleEnergy, normalizeVehicleSummary, vehicleDisplayName, vehicleListItems } from "../lib/openauto.ts";
 
 test("normalizes a vehicle-condition response without retaining provider fields", () => {
   const summary = normalizeVehicleSummary({
@@ -175,8 +175,12 @@ test("normalizes the current aggregate range, health, and energy contracts", () 
 });
 
 test("uses the vehicle list name instead of a stale model name", () => {
-  assert.equal(vehicleDisplayName({ autoName: "新名字", modelName: "海狮06DMi" }), "新名字");
-  assert.equal(normalizeVehicleSummary({ vin: "TEST-VEHICLE", autoName: "新名字", modelName: "海狮06DMi" }).name, "新名字");
+  assert.equal(vehicleDisplayName({ autoAlias: "海狮06DMi plus", autoName: "海狮06DMi", modelName: "海狮06DMi" }), "海狮06DMi plus");
+  assert.equal(vehicleDisplayName({ data: { autoInfo: { autoAlias: "海狮06DMi plus" } }, modelName: "海狮06DMi" }), "海狮06DMi plus");
+  assert.equal(vehicleDisplayName({ autoName: "海狮06DMi", modelName: "海狮06DMi" }), "海狮06DMi");
+  assert.equal(normalizeVehicleSummary({ vin: "TEST-VEHICLE", autoAlias: "海狮06DMi plus", modelName: "海狮06DMi" }).name, "海狮06DMi plus");
+  assert.equal(namedVehicleSummary({ vin: "TEST-VEHICLE", modelName: "海狮06DMi", autoName: "海狮06DMi" }, { vin: "TEST-VEHICLE", autoAlias: "海狮06DMi plus" }).name, "海狮06DMi plus");
+  assert.equal(vehicleListItems({ data: { diLinkAutoInfoList: [{ vin: "TEST-VEHICLE", autoAlias: "海狮06DMi plus" }] } }).map((item) => vehicleDisplayName(item))[0], "海狮06DMi plus");
 });
 
 test("plots recent energy from oldest to newest", () => {

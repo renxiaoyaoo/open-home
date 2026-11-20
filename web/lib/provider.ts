@@ -206,10 +206,24 @@ type DoorSortState = {
 
 function safeDoorIds(value: unknown) {
   const ids: number[] = [];
-  walk(value, (item) => {
-    const id = Number(item.doorControlId ?? item.doorId);
+  const push = (raw: unknown) => {
+    const id = Number(raw);
     if (Number.isSafeInteger(id) && id > 0 && !ids.includes(id)) ids.push(id);
-  });
+  };
+  const visit = (current: unknown) => {
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        if (typeof item === "number" || typeof item === "string") push(item);
+        else visit(item);
+      }
+      return;
+    }
+    if (!current || typeof current !== "object") return;
+    const item = current as JsonMap;
+    if ("doorControlId" in item || "doorId" in item) push(item.doorControlId ?? item.doorId);
+    Object.values(item).forEach((child) => { if (child && typeof child === "object") visit(child); });
+  };
+  visit(value);
   return ids;
 }
 
@@ -241,6 +255,8 @@ export function doorSortState(payload: unknown): DoorSortState {
     const category = doorUseforCategory(item.doorControlUsefor);
     if (Number.isSafeInteger(id) && id > 0 && category) categories.set(id, category);
   });
+  // A homepage key with no official label is a gate. Unit doors stay building.
+  for (const id of common) if (!categories.has(id)) categories.set(id, "gate");
   const color = (key: string) => Number.isInteger(Number(record[key])) ? Number(record[key]) : -1;
   return { common, gate, building, custom, categories, gateDoorColor: color("gateDoorColor"), buildingDoorColor: color("buildingDoorColor"), customDoorColor: color("customDoorColor") };
 }
@@ -258,6 +274,39 @@ export function doorSortBody(payload: unknown, communityId: number, doorControlI
   else groups[category].push(doorControlId);
   return {
     list: [{ commondoorControlIds: common, gatedoorControlIds: groups.gate, buildingDoorList: groups.building, customDoorList: groups.custom }],
+    method: "doorSort",
+    commId: communityId,
+    gateDoorColor: state.gateDoorColor,
+    buildingDoorColor: state.buildingDoorColor,
+    customDoorColor: state.customDoorColor,
+  };
+}
+
+/**
+ * Replace the homepage gate keys in one sort.
+ * Unit and building doors already on the homepage stay at the front and are not
+ * part of the replaceable slots. Gates that leave those slots return to the gate list.
+ */
+export function doorSortOrderBody(payload: unknown, communityId: number, orderedIds: number[]): JsonMap {
+  if (!Number.isSafeInteger(communityId) || communityId <= 0) throw new UpstreamError("门禁参数无效");
+  if (orderedIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) throw new UpstreamError("门禁参数无效");
+  const state = doorSortState(payload);
+  const unique = orderedIds.filter((id, index) => orderedIds.indexOf(id) === index);
+  const missing = unique.find((id) => !state.categories.has(id));
+  if (missing) throw new UpstreamError("无法识别该门禁的官方分类");
+  const pinned = state.common.filter((id) => state.categories.get(id) === "building");
+  const gates = unique.filter((id) => state.categories.get(id) !== "building");
+  const wanted = [...pinned, ...gates];
+  const wantedSet = new Set(wanted);
+  const restore = (ids: number[], category: DoorSortCategory) => {
+    const kept = ids.filter((id) => !wantedSet.has(id));
+    for (const id of state.common) {
+      if (!wantedSet.has(id) && state.categories.get(id) === category && !kept.includes(id)) kept.push(id);
+    }
+    return kept;
+  };
+  return {
+    list: [{ commondoorControlIds: wanted, gatedoorControlIds: restore(state.gate, "gate"), buildingDoorList: restore(state.building, "building"), customDoorList: restore(state.custom, "custom") }],
     method: "doorSort",
     commId: communityId,
     gateDoorColor: state.gateDoorColor,

@@ -4,32 +4,87 @@ import SwiftUI
 
 @MainActor @Observable final class VehicleViewModel {
     var vehicles: [VehicleResource] = []; var selectedVehicleID = ""
-    var snapshot: VehicleSnapshot?; var energy: VehicleEnergy?; var isLoading = false; var message: String?; var lastUpdatedAt: Date?
+    var snapshot: VehicleSnapshot?; var energy: VehicleEnergy?; var isLoading = false; var message: String?; var lastUpdatedAt: Date?; var signedOut = false
     private let provider: any VehicleProvider; private let liveStatus: LiveStatusManager; private var activityID: String?
     var refreshInterval: Duration { switch snapshot?.state { case .ready, .driving, .charging: .seconds(5); default: .seconds(30) } }
-    init(provider: any VehicleProvider, registrar: (any LiveActivityRegistrar)? = nil) { self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar) }
-    func loadDetail() async {
-        guard !isLoading else { return }; isLoading = true; defer { isLoading = false }
-        do {
-            if vehicles.isEmpty { vehicles = try await provider.vehicles() }
-            let current = try await provider.snapshot()
-            snapshot = current; selectedVehicleID = current.vehicleID; message = nil; lastUpdatedAt = .now; await updateLiveStatus(current)
-            let value = try await provider.detail()
-            snapshot = value.summary; selectedVehicleID = value.summary.vehicleID; energy = value.energy; message = nil; lastUpdatedAt = .now; await updateLiveStatus(value.summary)
+    init(provider: any VehicleProvider, registrar: (any LiveActivityRegistrar)? = nil) {
+        self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar)
+        if let cached = ModuleContentStore.load("vehicle.json", as: VehicleCache.self) {
+            vehicles = cached.vehicles; snapshot = cached.snapshot; energy = cached.energy; selectedVehicleID = cached.snapshot.vehicleID; lastUpdatedAt = cached.snapshot.updatedAt
         }
-        catch { message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
+    }
+    func discardDisplayedContent() { vehicles = []; selectedVehicleID = ""; snapshot = nil; energy = nil; message = nil; signedOut = false }
+
+    func loadDetail() async {
+        let revision = ModuleContentStore.revision
+        guard !ModuleContentStore.isBlocked("vehicle.json") else { clearSignedOut(); return }
+        guard !isLoading else { return }; isLoading = true; var cancelled = false; defer { isLoading = false }
+        do {
+            vehicles = try await provider.vehicles()
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); cancelled = true; return }
+            let current = try await provider.snapshot()
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); cancelled = true; return }
+            snapshot = current.keepingLocation(from: snapshot); signedOut = false; selectedVehicleID = current.vehicleID; message = nil; remember(current.updatedAt); persist(); await updateLiveStatus(snapshot ?? current)
+            let value = try await provider.detail()
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); cancelled = true; return }
+            snapshot = value.summary.keepingLocation(from: snapshot); signedOut = false; selectedVehicleID = value.summary.vehicleID; energy = value.energy; message = nil; remember(value.summary.updatedAt ?? value.energy.updatedAt.flatMap(Self.parseDate)); persist(); await updateLiveStatus(snapshot ?? value.summary)
+        } catch is CancellationError { cancelled = true }
+        catch let error as URLError where error.code == .cancelled { cancelled = true }
+        catch let error as APIError {
+            noteSignedOut(error)
+            message = error.localizedDescription
+        }
+        catch { noteSignedOutMessage(error.localizedDescription); message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
     }
     func selectVehicle(_ id: String) async {
         guard id != selectedVehicleID, !isLoading else { return }
         isLoading = true; defer { isLoading = false }
-        do { try await provider.selectVehicle(id: id); let current = try await provider.snapshot(); selectedVehicleID = id; snapshot = current; message = nil; await updateLiveStatus(current); let value = try await provider.detail(); snapshot = value.summary; energy = value.energy; await updateLiveStatus(value.summary) }
+        do { try await provider.selectVehicle(id: id); let current = try await provider.snapshot(); selectedVehicleID = id; snapshot = current.keepingLocation(from: snapshot); signedOut = false; message = nil; remember(current.updatedAt); await updateLiveStatus(snapshot ?? current); let value = try await provider.detail(); snapshot = value.summary.keepingLocation(from: snapshot); energy = value.energy; remember(value.summary.updatedAt ?? value.energy.updatedAt.flatMap(Self.parseDate)); persist(); await updateLiveStatus(snapshot ?? value.summary) }
         catch { message = error.localizedDescription }
     }
     func refreshStatus() async {
+        let revision = ModuleContentStore.revision
+        guard !ModuleContentStore.isBlocked("vehicle.json") else { clearSignedOut(); return }
         guard !isLoading else { return }
-        do { let value = try await provider.snapshot(); snapshot = value; message = nil; lastUpdatedAt = .now; await updateLiveStatus(value) }
-        catch { message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
+        do {
+            let value = try await provider.snapshot()
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); return }
+            snapshot = value.keepingLocation(from: snapshot); signedOut = false; message = nil; remember(value.updatedAt); persist(); await updateLiveStatus(snapshot ?? value)
+        }
+        catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
+        catch let error as APIError {
+            noteSignedOut(error)
+            message = error.localizedDescription
+        }
+        catch { noteSignedOutMessage(error.localizedDescription); message = error is URLError ? "无法连接 OpenHome" : error.localizedDescription }
     }
+    private func noteSignedOut(_ error: APIError) {
+        switch error {
+        case .providerAuthenticationRequired, .unauthorized:
+            clearSignedOut()
+        case .server(_, let message):
+            noteSignedOutMessage(message ?? error.localizedDescription)
+        default:
+            noteSignedOutMessage(error.localizedDescription)
+        }
+    }
+    private func noteSignedOutMessage(_ message: String?) {
+        guard message?.contains("登录") == true else { return }
+        clearSignedOut()
+    }
+    private func clearSignedOut() {
+        discardDisplayedContent(); signedOut = true; ModuleContentStore.block("vehicle.json")
+    }
+    private func keepSignedOutState() {
+        if ModuleContentStore.isBlocked("vehicle.json") { clearSignedOut() } else { discardDisplayedContent() }
+    }
+    func applySessionChange() {
+        keepSignedOutState()
+    }
+    private func persist() { guard let snapshot, !signedOut else { return }; ModuleContentStore.save("vehicle.json", VehicleCache(vehicles: vehicles, snapshot: snapshot, energy: energy)) }
+    private func remember(_ date: Date?) { if let date { lastUpdatedAt = date } }
+    private static func parseDate(_ value: String) -> Date? { VehicleWireDate.parse(value) }
     private func updateLiveStatus(_ value: VehicleSnapshot) async {
         let active = value.state == .ready || value.state == .driving || value.state == .charging
         let end = value.remainingChargeMinutes.map { Date().addingTimeInterval(TimeInterval($0 * 60)) }
@@ -42,42 +97,184 @@ import SwiftUI
 }
 
 struct VehicleView: View {
+    @Environment(AppModel.self) private var appModel
     @State private var model: VehicleViewModel; @Environment(\.scenePhase) private var scenePhase
     init(provider: any VehicleProvider, registrar: (any LiveActivityRegistrar)? = nil) { _model = State(initialValue: VehicleViewModel(provider: provider, registrar: registrar)) }
     var body: some View {
-        ScrollView {
-            if let value = model.snapshot { dashboard(value).padding(14).frame(maxWidth: 520) }
-            else if model.isLoading { ProgressView().padding(.top, 100) }
-            else { ContentUnavailableView("车辆暂时未加载", systemImage: "car.side", description: Text(model.message ?? "下拉重试")) }
+        Group {
+            if model.signedOut || model.message?.contains("登录") == true { OpenHomeUnavailable(title: "尚未登录", systemImage: "person.crop.circle.badge.xmark", description: model.message ?? "登录车辆账号后才会显示内容。") }
+            else if let value = model.snapshot { vehicleList(value) }
+            else if model.isLoading { ProgressView("正在读取车辆").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { OpenHomeUnavailable(title: "还没有车辆内容", systemImage: "car.side", description: model.message ?? "连接恢复后可以重新读取。", actionTitle: "重试") { Task { await model.loadDetail() } } }
         }
+        .onChange(of: appModel.sessionRevision) { _, _ in model.applySessionChange() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
-            if model.energy == nil { await model.loadDetail() }
+            await model.loadDetail()
             while !Task.isCancelled { try? await Task.sleep(for: model.refreshInterval); await model.refreshStatus() }
         }
         .refreshable { await model.loadDetail() }
     }
 
-    private func dashboard(_ value: VehicleSnapshot) -> some View {
-        VStack(spacing: 12) {
-            summaryCard(value)
-            mileageGrid(value)
-            vehicleStateCard(value)
-            if let energy = model.energy { energyCard(energy) }
-            if let charging = value.chargingState, charging != "unknown" { chargingCard(value) }
-            if let message = model.message { Text(message).font(.caption).foregroundStyle(.red) }
+    private func vehicleList(_ value: VehicleSnapshot) -> some View {
+        List {
+            Section {
+                valueRow("状态", value.state.label, tone: statusColor(value.state.label))
+                valueRow("续航", "\(number(value.totalRangeKM)) km", emphasize: true)
+                fuelRow("电", percent: value.batteryPercent, range: value.electricRangeKM)
+                fuelRow("油", percent: value.fuelPercent, range: value.fuelRangeKM)
+                locationRow(value)
+                valueRow("信号", connectionLabel(value), tone: statusColor(connectionLabel(value)))
+                valueRow("更新时间", updateValue(value))
+            } header: {
+                moduleTitle(displayName(value)) {
+                    if model.vehicles.count > 1 { Menu { ForEach(model.vehicles) { vehicle in Button(vehicle.name) { Task { await model.selectVehicle(vehicle.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") }.accessibilityLabel("选择车辆") }
+                }
+            }
+            Section("里程") {
+                valueRow("总里程", measure(value.odometerKM, "公里"), emphasize: true)
+                valueRow("EV 里程", measure(value.evMileageKM, "公里"))
+                valueRow("HEV 里程", measure(value.hevMileageKM, "公里"))
+                valueRow("车内温度", measure(value.cabinTemperatureC, "℃"))
+            }
+            Section("车辆状态") {
+                valueRow("车门", doorStatus(value), tone: statusColor(doorStatus(value)))
+                valueRow("车窗", opening(value.windowsOpen), tone: statusColor(opening(value.windowsOpen)))
+                valueRow("前舱盖", openLabel(value.hoodOpen), tone: statusColor(openLabel(value.hoodOpen)))
+                valueRow("后备箱", openLabel(value.trunkOpen), tone: statusColor(openLabel(value.trunkOpen)))
+            }
+            if let tire = value.tirePressureKPA {
+                Section("胎压") { tirePanel(tire) }
+            }
+            Section("整车状态") {
+                valueRow("防盗状态", security(value.securityState), tone: statusColor(security(value.securityState)))
+                valueRow("动力模式", driveMode(value.driveMode), tone: statusColor(driveMode(value.driveMode)))
+                valueRow("OK 指示灯", value.okIndicator.map { $0 ? "点亮" : "熄灭" } ?? "—", tone: statusColor(value.okIndicator.map { $0 ? "点亮" : "熄灭" } ?? "—"))
+                valueRow("行驶状态", value.state.label, tone: statusColor(value.state.label))
+                valueRow("车速", unit(value.speedKPH, "公里/小时"))
+                valueRow("功率", unit(value.powerOutputKW, "千瓦"))
+                valueRow("发动机冷却液温度", unit(value.engineCoolantC, "℃"))
+            }
+            if let health = value.health { Section("健康检测") { healthRows(health) } }
+            if let energy = model.energy {
+                Section("最近 \(number(energy.recentDistanceKm ?? 50)) km平均行车能耗") { recentEnergyRows(energy) }
+                if let breakdown = energy.breakdown { Section { breakdownChart(breakdown) } }
+                if !energy.recentTrend.isEmpty {
+                    Section("近期能耗") {
+                        trendChart(latestTrend(energy.recentTrend)).frame(maxWidth: .infinity)
+                    }
+                }
+                Section("累计平均能耗") { cumulativeEnergyRows(energy) }
+            }
+            if let charging = value.chargingState, charging != "unknown" {
+                Section("充电") {
+                    valueRow("状态", charging == "charging" ? "正在补能" : charging == "complete" ? "已充满" : "未充电", tone: statusColor(charging == "charging" ? "正在补能" : charging == "complete" ? "已充满" : "未充电"))
+                    if let power = value.chargingPowerKW { valueRow("功率", "\(number(power)) kW") }
+                    if let minutes = value.remainingChargeMinutes { valueRow("剩余", "\(minutes / 60) 小时 \(minutes % 60) 分钟") }
+                }
+            }
+            if let message = model.message { Section { Text(message).foregroundStyle(.red) } }
+        }
+        .listStyle(.insetGrouped)
+    }
+    private func moduleTitle(_ title: String, @ViewBuilder trailing: () -> some View) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(.title3.weight(.semibold)).foregroundStyle(.primary).textCase(nil)
+            Spacer()
+            trailing().textCase(nil)
         }
     }
+    private func valueRow(_ title: String, _ value: String, emphasize: Bool = false, tone: Color? = nil) -> some View {
+        LabeledContent(title) {
+            Text(value).multilineTextAlignment(.trailing).foregroundStyle(tone ?? (emphasize ? Color.primary : Color.secondary)).font(emphasize ? .title3.weight(.semibold) : .body)
+        }
+    }
+    private func statusColor(_ value: String) -> Color { statusTone(value) }
+    @ViewBuilder private func healthRows(_ health: [String: String]) -> some View {
+        let items = [("发动机", "engine"), ("制动系统", "braking"), ("ABS 系统", "abs"), ("SRS 系统", "srs"), ("胎压监测系统", "tirePressure"), ("电子车身稳定系统", "stability"), ("转向系统", "steering"), ("发动机冷却液温度", "coolant"), ("机油压力", "oilPressure"), ("低压供电系统", "lowVoltage"), ("动力电池", "tractionBattery"), ("动力系统", "powertrain")]
+        let overall = health.values.contains("warning") ? "发现异常" : health.values.contains("normal") ? "正常" : "—"
+        valueRow("总体", overall, tone: statusColor(overall))
+        ForEach(items, id: \.1) { label, key in valueRow(label, healthLabel(health[key]), tone: statusColor(healthLabel(health[key]))) }
+    }
+    @ViewBuilder private func recentEnergyRows(_ value: VehicleEnergy) -> some View {
+        valueRow("电耗", rate(value.electricityKwhPer100Km, "kWh/100km"))
+        valueRow("油耗", rate(value.fuelLitresPer100Km, "L/100km"))
+        valueRow("综合", rate(value.equivalentFuelLitresPer100Km, "L/100km"))
+        if let amount = value.electricityKwh { valueRow("电量", "\(number(amount)) kWh") }
+        if let amount = value.fuelLitres { valueRow("油量", "\(number(amount)) L") }
+        if let amount = value.costYuan { valueRow("费用", "\(number(amount)) 元") }
+        if let rank = value.rankPercent { valueRow("领先同车型", "\(number(rank))%") }
+    }
+    @ViewBuilder private func cumulativeEnergyRows(_ value: VehicleEnergy) -> some View {
+        valueRow("电耗", rate(value.cumulativeElectricityKwhPer100Km, "kWh/100km"))
+        valueRow("油耗", rate(value.cumulativeFuelLitresPer100Km, "L/100km"))
+        valueRow("综合", rate(value.cumulativeEquivalentFuelLitresPer100Km, "L/100km"))
+        valueRow("每公里费用", measure(value.costPerKmYuan, "元"))
+        if let rank = value.cumulativeRankPercent { valueRow("领先同车型", "\(number(rank))%") }
+    }
+    private func labeledGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.title3.weight(.semibold)).padding(.horizontal, 4)
+            content()
+        }
+    }
+    private func infoCard(_ rows: [(String, String, Bool)], location: VehicleSnapshot? = nil, locationAfter: String? = nil) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                infoRow(row.0, row.1, emphasize: row.2)
+                if location != nil, row.0 == locationAfter { insetDivider; locationRow(location!) }
+                if index < rows.count - 1 { insetDivider }
+            }
+        }
+        .background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func infoRow(_ title: String, _ value: String, emphasize: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+            Spacer(minLength: 12)
+            Text(value).multilineTextAlignment(.trailing).foregroundStyle(emphasize ? Color.primary : Color.secondary).font(emphasize ? .title3.weight(.semibold) : .body)
+        }
+        .font(.body)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    }
+    private var insetDivider: some View { Rectangle().fill(Color(uiColor: .separator)).frame(height: 1 / UIScreen.main.scale).padding(.leading, 16) }
+    private func levelText(_ percent: Double?, _ range: Double?) -> String { "\(percent.map { "\(Int($0))%" } ?? "—") · \(range.map { "\(number($0)) km" } ?? "—")" }
+    private func fuelRow(_ title: String, percent: Double?, range: Double?) -> some View {
+        let tone = levelTone(percent)
+        return HStack(spacing: 10) {
+            Text(title)
+            Spacer(minLength: 12)
+            Text(range.map { "\(number($0)) km" } ?? "—").foregroundStyle(.secondary)
+            Text(percent.map { "\(Int($0))%" } ?? "—").foregroundStyle(tone)
+            ProgressView(value: min(max(percent ?? 0, 0), 100), total: 100)
+                .tint(tone)
+                .frame(width: 56)
+        }
+    }
+    private func measure(_ value: Double?, _ unit: String) -> String { "\(number(value)) \(unit)" }
+    private func rate(_ value: Double?, _ unit: String) -> String { "\(energyNumber(value)) \(unit)" }
     private func summaryCard(_ value: VehicleSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack { VStack(alignment: .leading, spacing: 3) { Text(displayName(value)).font(.title2.bold()); Text(value.state.label).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }; Spacer(); if model.vehicles.count > 1 { Menu { ForEach(model.vehicles) { vehicle in Button(vehicle.name) { Task { await model.selectVehicle(vehicle.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") }.accessibilityLabel("选择车辆") }; connection(value) }
-            HStack(alignment: .lastTextBaseline, spacing: 8) { Text(number(value.totalRangeKM)).font(.system(size: 38, weight: .semibold, design: .rounded)).minimumScaleFactor(0.75).lineLimit(1); Text("km 总续航").font(.caption).foregroundStyle(.secondary); Spacer(); level("bolt.fill", value.batteryPercent, value.electricRangeKM, .green); level("fuelpump.fill", value.fuelPercent, value.fuelRangeKM, .blue) }
+            HStack(alignment: .firstTextBaseline) {
+                Text(displayName(value)).font(.title3.weight(.semibold))
+                Spacer(minLength: 8)
+                if model.vehicles.count > 1 { Menu { ForEach(model.vehicles) { vehicle in Button(vehicle.name) { Task { await model.selectVehicle(vehicle.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") }.accessibilityLabel("选择车辆") }
+            }
             HStack(spacing: 8) {
-                if let mode = driveModeLabel(value.driveMode) { Label(mode, systemImage: "gauge.with.dots.needle.33percent") }
-                if let location = value.locationName, let mapURL = mapURL(location) { Spacer(); Link(destination: mapURL) { Label(location, systemImage: "location.fill").lineLimit(1) } }
-            }.font(.caption).foregroundStyle(.secondary)
-            Text("车辆状态更新于 \((value.updatedAt ?? model.lastUpdatedAt ?? .now).formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
-        }.padding(18).background(Color.openHomeAuto.opacity(0.13), in: RoundedRectangle(cornerRadius: 18))
+                Text(updateValue(value)).font(.footnote).foregroundStyle(.secondary)
+                if let mode = driveModeLabel(value.driveMode) { Text(mode).font(.caption2.weight(.semibold)).padding(.horizontal, 6).padding(.vertical, 2).background(Color.openHomeSurface, in: Capsule()) }
+                Spacer()
+                connection(value)
+            }
+            HStack(alignment: .lastTextBaseline, spacing: 16) {
+                Text(number(value.totalRangeKM)).font(.system(.largeTitle, design: .rounded).weight(.medium)).monospacedDigit().minimumScaleFactor(0.7).lineLimit(1)
+                Text("km").font(.footnote).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                VStack(alignment: .leading, spacing: 8) { level("bolt.fill", "电", value.batteryPercent, value.electricRangeKM, .green); level("fuelpump.fill", "油", value.fuelPercent, value.fuelRangeKM, .blue) }
+            }
+            locationRow(value)
+        }.padding(18).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 18))
     }
     private func mileageGrid(_ value: VehicleSnapshot) -> some View {
         LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 10) {
@@ -86,18 +283,89 @@ struct VehicleView: View {
     }
     private func vehicleStateCard(_ value: VehicleSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("车辆状态").font(.title3.bold())
+            Text("车辆状态").font(.headline)
             LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                 stateItem("车门", doorStatus(value)); stateItem("车窗", opening(value.windowsOpen)); stateItem("前舱盖", openLabel(value.hoodOpen)); stateItem("后备箱", openLabel(value.trunkOpen))
             }
             if let tire = value.tirePressureKPA { tirePanel(tire) }
             Divider()
-            Text("整车状态").font(.subheadline.bold())
+            Text("整车状态").font(.headline)
             LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) {
                 stateItem("防盗状态", security(value.securityState)); stateItem("动力模式", driveMode(value.driveMode)); stateItem("OK 指示灯", value.okIndicator.map { $0 ? "点亮" : "熄灭" } ?? "—"); stateItem("行驶状态", value.state.label); stateItem("车速", unit(value.speedKPH, "公里/小时")); stateItem("功率", unit(value.powerOutputKW, "千瓦")); stateItem("发动机冷却液温度", unit(value.engineCoolantC, "℃"))
             }
             if let health = value.health { healthPanel(health) }
         }.padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
+    }
+    private func healthBlock(_ health: [String: String]) -> some View {
+        let items = [("发动机", "engine"), ("制动系统", "braking"), ("ABS 系统", "abs"), ("SRS 系统", "srs"), ("胎压监测系统", "tirePressure"), ("电子车身稳定系统", "stability"), ("转向系统", "steering"), ("发动机冷却液温度", "coolant"), ("机油压力", "oilPressure"), ("低压供电系统", "lowVoltage"), ("动力电池", "tractionBattery"), ("动力系统", "powertrain")]
+        let overall = health.values.contains("warning") ? "发现异常" : health.values.contains("normal") ? "正常" : "—"
+        return labeledGroup("健康检测") {
+            infoCard([("总体", overall, false)] + items.map { ($0.0, healthLabel(health[$0.1]), false) })
+        }
+    }
+    private func energyBlock(_ value: VehicleEnergy) -> some View {
+        VStack(alignment: .leading, spacing: 22) {
+            labeledGroup("最近 \(number(value.recentDistanceKm ?? 50)) km平均行车能耗") {
+                infoCard([
+                    ("电耗", rate(value.electricityKwhPer100Km, "kWh/100km"), false),
+                    ("综合", rate(value.equivalentFuelLitresPer100Km, "L/100km"), false),
+                    ("油耗", rate(value.fuelLitresPer100Km, "L/100km"), false),
+                    value.electricityKwh.map { ("电量", "\(number($0)) kWh", false) },
+                    value.fuelLitres.map { ("油量", "\(number($0)) L", false) },
+                    value.costYuan.map { ("费用", "\(number($0)) 元", false) },
+                    value.rankPercent.map { ("领先同车型", "\(number($0))%", false) },
+                ].compactMap { $0 })
+            }
+            if let breakdown = value.breakdown { breakdownChart(breakdown).padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 12)) }
+            if !value.recentTrend.isEmpty {
+                labeledGroup("近期能耗") {
+                    trendChart(latestTrend(value.recentTrend)).padding(16).frame(maxWidth: .infinity).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            labeledGroup("累计平均能耗") {
+                infoCard([
+                    ("电耗", rate(value.cumulativeElectricityKwhPer100Km, "kWh/100km"), false),
+                    ("综合", rate(value.cumulativeEquivalentFuelLitresPer100Km, "L/100km"), false),
+                    ("油耗", rate(value.cumulativeFuelLitresPer100Km, "L/100km"), false),
+                    ("总里程", measure(value.totalDistanceKm, "km"), false),
+                    ("每公里费用", measure(value.costPerKmYuan, "元"), false),
+                    value.cumulativeRankPercent.map { ("领先同车型", "\(number($0))%", false) },
+                ].compactMap { $0 })
+            }
+        }
+    }
+    private func healthSection(_ health: [String: String]) -> some View {
+        let items = [("发动机", "engine"), ("制动系统", "braking"), ("ABS 系统", "abs"), ("SRS 系统", "srs"), ("胎压监测系统", "tirePressure"), ("电子车身稳定系统", "stability"), ("转向系统", "steering"), ("发动机冷却液温度", "coolant"), ("机油压力", "oilPressure"), ("低压供电系统", "lowVoltage"), ("动力电池", "tractionBattery"), ("动力系统", "powertrain")]
+        let overall = health.values.contains("warning") ? "发现异常" : health.values.contains("normal") ? "正常" : "—"
+        return Section {
+            LabeledContent("总体", value: overall)
+            ForEach(items, id: \.1) { label, key in
+                LabeledContent(label, value: healthLabel(health[key]))
+            }
+        } header: { Text("健康检测") }
+    }
+    private func energySections(_ value: VehicleEnergy) -> some View {
+        Group {
+            Section("最近 \(number(value.recentDistanceKm ?? 50)) km平均行车能耗") {
+                LabeledContent("电耗", value: rate(value.electricityKwhPer100Km, "kWh/100km"))
+                LabeledContent("综合", value: rate(value.equivalentFuelLitresPer100Km, "L/100km"))
+                LabeledContent("油耗", value: rate(value.fuelLitresPer100Km, "L/100km"))
+                if value.electricityKwh != nil { LabeledContent("电量", value: "\(number(value.electricityKwh)) kWh") }
+                if value.fuelLitres != nil { LabeledContent("油量", value: "\(number(value.fuelLitres)) L") }
+                if value.costYuan != nil { LabeledContent("费用", value: "\(number(value.costYuan)) 元") }
+                if let rank = value.rankPercent { LabeledContent("领先同车型", value: "\(number(rank))%") }
+                if let breakdown = value.breakdown { breakdownChart(breakdown) }
+            }
+            if !value.recentTrend.isEmpty { Section { trendChart(latestTrend(value.recentTrend)) } }
+            Section("累计平均能耗") {
+                LabeledContent("电耗", value: rate(value.cumulativeElectricityKwhPer100Km, "kWh/100km"))
+                LabeledContent("综合", value: rate(value.cumulativeEquivalentFuelLitresPer100Km, "L/100km"))
+                LabeledContent("油耗", value: rate(value.cumulativeFuelLitresPer100Km, "L/100km"))
+                LabeledContent("总里程", value: measure(value.totalDistanceKm, "km"))
+                LabeledContent("每公里费用", value: measure(value.costPerKmYuan, "元"))
+                if let rank = value.cumulativeRankPercent { LabeledContent("领先同车型", value: "\(number(rank))%") }
+            }
+        }
     }
     private func healthPanel(_ health: [String: String]) -> some View {
         let items = [("发动机", "engine"), ("制动系统", "braking"), ("ABS 系统", "abs"), ("SRS 系统", "srs"), ("胎压监测系统", "tirePressure"), ("电子车身稳定系统", "stability"), ("转向系统", "steering"), ("发动机冷却液温度", "coolant"), ("机油压力", "oilPressure"), ("低压供电系统", "lowVoltage"), ("动力电池", "tractionBattery"), ("动力系统", "powertrain")]
@@ -112,7 +380,7 @@ struct VehicleView: View {
             Text("能耗").font(.headline)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 2) { Text("最近 \(number(value.recentDistanceKm ?? 50)) km").font(.subheadline.bold()); Text("平均行车能耗").font(.caption).foregroundStyle(.secondary) }
+                    Text("最近 \(number(value.recentDistanceKm ?? 50)) km").font(.subheadline.weight(.semibold))
                     Spacer()
                     if let rank = value.rankPercent { Text("领先 \(number(rank))%").font(.subheadline.bold()).foregroundStyle(Color.openHomeAuto) }
                 }
@@ -124,9 +392,9 @@ struct VehicleView: View {
                 }
                 if let breakdown = value.breakdown { breakdownChart(breakdown) }
             }.padding(14).background(Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 16))
-            if !value.recentTrend.isEmpty { trendChart(Array(value.recentTrend.suffix(7))).padding(14).background(Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 16)) }
+            if !value.recentTrend.isEmpty { trendChart(latestTrend(value.recentTrend)).padding(14).background(Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 16)) }
             VStack(alignment: .leading, spacing: 12) {
-                HStack { Text("累计平均能耗").font(.subheadline.bold()); Spacer(); if let rank = value.cumulativeRankPercent { Text("领先 \(number(rank))%").font(.subheadline.bold()).foregroundStyle(Color.openHomeAuto) } }
+                HStack { Text("累计平均能耗").font(.subheadline.weight(.semibold)); Spacer(); if let rank = value.cumulativeRankPercent { Text("领先 \(number(rank))%").font(.subheadline).foregroundStyle(Color.openHomeAuto) } }
                 equation(value.cumulativeEquivalentFuelLitresPer100Km, value.cumulativeElectricityKwhPer100Km, value.cumulativeFuelLitresPer100Km)
                 LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 8) { energyMetric("总里程", value.totalDistanceKm, "km", "road.lanes"); energyMetric("每公里费用", value.costPerKmYuan, "元", "banknote") }
             }.padding(14).background(Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 16))
@@ -137,15 +405,85 @@ struct VehicleView: View {
             VStack(alignment: .leading, spacing: 3) { Label("电耗", systemImage: "bolt.fill").foregroundStyle(.secondary); Text("\(energyNumber(electricity)) kWh/100km").bold() }
             Spacer(); VStack(spacing: 3) { Text("综合").foregroundStyle(.secondary); Text("\(energyNumber(equivalent)) L/100km").bold() }
             Spacer(); VStack(alignment: .trailing, spacing: 3) { Label("油耗", systemImage: "fuelpump.fill").foregroundStyle(.secondary); Text("\(energyNumber(fuel)) L/100km").bold() }
-        }.font(.caption)
+        }.font(.subheadline)
     }
     private func breakdownChart(_ value: VehicleEnergyBreakdown) -> some View {
         let parts = [("驱动", value.propulsionPercent, Color.brown), ("空调", value.climatePercent, .teal), ("电器", value.electricalPercent, .orange), ("其他", value.otherPercent, .gray)]
         return VStack(alignment: .leading, spacing: 8) { Text("能耗分布").font(.subheadline.bold()); GeometryReader { geometry in HStack(spacing: 2) { ForEach(parts, id: \.0) { _, percent, color in if let percent, percent > 0 { color.frame(width: max(3, geometry.size.width * percent / 100)) } } } }.frame(height: 10).clipShape(Capsule()); HStack { ForEach(parts, id: \.0) { label, percent, color in if let percent { Label("\(label) \(number(percent))%", systemImage: "circle.fill").foregroundStyle(color).font(.caption2) } } } }
     }
     private func trendChart(_ points: [VehicleEnergyTrendPoint]) -> some View {
-        let ordered = normalizedTrend(points)
-        return VStack(alignment: .leading, spacing: 8) { Text("近期能耗").font(.subheadline.bold()); Chart(ordered, id: \.point.id) { item in if let value = item.point.equivalentFuelLitresPer100Km { LineMark(x: .value("日期", item.date), y: .value("能耗", value)).interpolationMethod(.catmullRom).foregroundStyle(Color.openHomeAuto).symbol(.circle) }; if let peer = item.point.peerAverageLitresPer100Km { LineMark(x: .value("日期", item.date), y: .value("同车型", peer)).interpolationMethod(.catmullRom).foregroundStyle(.secondary).lineStyle(.init(dash: [4, 3])) } }.frame(height: 150).chartYAxis { AxisMarks(position: .leading) }.chartXAxis { AxisMarks(values: .automatic(desiredCount: min(4, ordered.count))) { value in AxisGridLine(); AxisTick(); AxisValueLabel(format: .dateTime.month().day()) } } }
+        let rows = trendRows(points)
+        let labels = trendLabels(rows)
+        let last = Double(max(labels.count - 1, 0))
+        return VStack(alignment: .leading, spacing: 8) {
+            Chart {
+                ForEach(rows.filter { $0.series == "同车型" }) { row in
+                    LineMark(x: .value("日", row.index), y: .value("L/100km", row.value), series: .value("对象", row.series))
+                        .interpolationMethod(.linear)
+                        .foregroundStyle(Color.orange)
+                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                }
+                ForEach(rows.filter { $0.series == "我的" }) { row in
+                    LineMark(x: .value("日", row.index), y: .value("L/100km", row.value), series: .value("对象", row.series))
+                        .interpolationMethod(.linear)
+                        .foregroundStyle(Color.green)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    if let plot = proxy.plotFrame {
+                        let origin = geometry[plot].origin
+                        ForEach(rows.filter { $0.series == "我的" }) { row in
+                            if let x = proxy.position(forX: row.index), let y = proxy.position(forY: row.value) {
+                                Text(energyNumber(row.value))
+                                    .font(.caption2)
+                                    .foregroundStyle(.green)
+                                    .position(x: origin.x + x, y: origin.y + y - 14)
+                            }
+                        }
+                    }
+                }
+            }
+            .chartXScale(domain: -0.4...(last + 0.4))
+            .chartXAxis {
+                AxisMarks(values: Array(labels.indices)) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let index = value.as(Int.self), labels.indices.contains(index) {
+                            Text(labels[index]).font(.caption2)
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { _ in
+                    AxisGridLine()
+                    AxisValueLabel()
+                }
+            }
+            .chartYAxisLabel("L/100km")
+            .chartLegend(.hidden)
+            .chartPlotStyle { plot in plot.padding(.top, 22) }
+            .frame(height: 220)
+            HStack(spacing: 16) {
+                trendKey(color: .green, dashed: false, title: "我的")
+                trendKey(color: .orange, dashed: true, title: "同车型")
+            }
+        }
+    }
+    private func trendKey(color: Color, dashed: Bool, title: String) -> some View {
+        HStack(spacing: 6) {
+            Canvas { context, size in
+                var path = Path()
+                let y = size.height / 2
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
+                context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .butt, dash: dashed ? [4, 3] : []))
+            }
+            .frame(width: 22, height: 10)
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+        }
     }
     private func chargingCard(_ value: VehicleSnapshot) -> some View { HStack { Label("充电状态", systemImage: "bolt.fill"); Text(value.chargingState == "charging" ? "正在补能" : value.chargingState == "complete" ? "已充满" : "未充电").foregroundStyle(.secondary); Spacer(); if let power = value.chargingPowerKW { Text("\(number(power)) kW") }; if let minutes = value.remainingChargeMinutes { Text("\(minutes / 60)h \(minutes % 60)m") } }.font(.subheadline.weight(.semibold)).padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16)) }
 
@@ -159,19 +497,48 @@ struct VehicleView: View {
     private func connectionLabel(_ value: VehicleSnapshot) -> String {
         guard value.online != false else { return "离线" }
         guard let level = value.signalStrength else { return "在线" }
-        return level >= 4 ? "信号良好" : level >= 2 ? "信号一般" : "信号较弱"
+        return level >= 4 ? "良好" : level >= 2 ? "一般" : "较弱"
     }
-    private func level(_ symbol: String, _ percent: Double?, _ range: Double?, _ color: Color) -> some View { VStack(alignment: .leading, spacing: 3) { HStack(spacing: 4) { Image(systemName: symbol).foregroundStyle(color); Text(percent.map { "\(Int($0))%" } ?? "—").font(.headline) }; Text(range.map { "\(number($0)) km" } ?? "—").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }.frame(width: 78, alignment: .leading) }
+    private func level(_ symbol: String, _ title: String, _ percent: Double?, _ range: Double?, _ color: Color) -> some View { HStack(spacing: 6) { Image(systemName: symbol).foregroundStyle(color).frame(width: 18); Text(title).font(.subheadline).foregroundStyle(.secondary).frame(width: 18, alignment: .leading); Text(percent.map { "\(Int($0))%" } ?? "—").font(.subheadline).monospacedDigit().frame(width: 44, alignment: .trailing); Text(range.map { "\(number($0)) km" } ?? "—").font(.subheadline).monospacedDigit().frame(maxWidth: .infinity, alignment: .leading) } }
+    private func locationRow(_ value: VehicleSnapshot) -> some View {
+        let location = value.locationName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return LabeledContent("停车位置") {
+            if let mapURL = location.isEmpty ? nil : mapURL(location) {
+                Link(location, destination: mapURL).multilineTextAlignment(.trailing)
+            } else {
+                Text(location.isEmpty ? "暂无停车位置" : location).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+            }
+        }
+    }
+    private func updateValue(_ value: VehicleSnapshot) -> String {
+        guard let updated = value.updatedAt ?? model.lastUpdatedAt else { return "未知" }
+        return openHomeTimeText(updated)
+    }
     private func metric(_ label: String, _ value: Double?, _ unit: String, _ symbol: String) -> some View { HStack(spacing: 10) { Image(systemName: symbol).frame(width: 34, height: 34).background(Color.openHomeAuto.opacity(0.12), in: RoundedRectangle(cornerRadius: 10)); VStack(alignment: .leading, spacing: 2) { Text(label).font(.caption).foregroundStyle(.secondary); Text("\(number(value)) \(unit)").font(.headline) } }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16)) }
     private func energyMetric(_ label: String, _ value: Double?, _ unit: String, _ symbol: String) -> some View { VStack(alignment: .leading, spacing: 5) { Label(label, systemImage: symbol).font(.caption).foregroundStyle(.secondary); Text("\(number(value)) \(unit)").font(.subheadline.bold()) }.frame(maxWidth: .infinity, alignment: .leading).padding(11).background(Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 12)) }
     private func stateItem(_ label: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(label).font(.caption).foregroundStyle(.secondary); Text(value).font(.subheadline.bold()) }.frame(maxWidth: .infinity, alignment: .leading).padding(11).background(value.contains("打开") || value.contains("未锁") ? Color.orange.opacity(0.12) : Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 11)) }
     private func tirePanel(_ value: VehicleTirePressure) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack { Text("胎压").font(.subheadline.bold()); Spacer(); Text("参考 250 kPa").font(.caption2).foregroundStyle(.secondary) }
-            Grid(horizontalSpacing: 16, verticalSpacing: 12) { GridRow { tire("左前", value.frontLeft); tire("右前", value.frontRight) }; GridRow { Divider(); Divider() }; GridRow { tire("左后", value.rearLeft); tire("右后", value.rearRight) } }.frame(maxWidth: .infinity)
-        }.padding(14).background(Color.openHomeBackground, in: RoundedRectangle(cornerRadius: 12))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(spacing: 18) { tire("左前", value.frontLeft); tire("左后", value.rearLeft) }
+                Image(systemName: "car.top.radiowaves.front")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52)
+                    .accessibilityLabel("车头朝上")
+                VStack(spacing: 18) { tire("右前", value.frontRight); tire("右后", value.rearRight) }
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
-    private func tire(_ label: String, _ value: Double?) -> some View { VStack(spacing: 2) { Text(label).font(.caption2).foregroundStyle(.secondary); Text(number(value)).font(.subheadline.bold().monospacedDigit()); Text("kPa").font(.caption2).foregroundStyle(.secondary) }.frame(maxWidth: .infinity) }
+    private func tire(_ label: String, _ value: Double?) -> some View {
+        let abnormal = value.map { $0 < 220 || $0 > 280 } ?? false
+        return VStack(spacing: 2) {
+            Text(value.map { number($0) } ?? "—").font(.body.weight(.semibold).monospacedDigit()).foregroundStyle(value == nil ? Color.secondary : (abnormal ? Color.orange : Color.green))
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
     private func doorStatus(_ value: VehicleSnapshot) -> String { if any(value.doorsOpen) { return "有打开" }; if any(value.doorsUnlocked) { return "已关未锁" }; return value.doorsOpen == nil && value.doorsUnlocked == nil ? "状态未知" : "已关已锁" }
     private func opening(_ value: VehicleCornerState?) -> String { value == nil ? "状态未知" : any(value) ? "有打开" : "已关" }
     private func any(_ value: VehicleCornerState?) -> Bool { [value?.frontLeft, value?.frontRight, value?.rearLeft, value?.rearRight].contains(true) }
@@ -183,20 +550,58 @@ struct VehicleView: View {
     private func unit(_ value: Double?, _ unit: String) -> String { value.map { "\(number($0)) \(unit)" } ?? "—" }
     private func number(_ value: Double?) -> String { guard let value else { return "—" }; return value.formatted(.number.precision(.fractionLength(0...2))) }
     private func energyNumber(_ value: Double?) -> String { guard let value else { return "—" }; return value.formatted(.number.precision(.fractionLength(1))) }
-    private func displayName(_ value: VehicleSnapshot) -> String { let normalized = cleanName(value.name); return normalized == "车辆" ? cleanName(model.vehicles.first(where: { $0.id == value.vehicleID })?.name ?? value.name) : normalized }
+    private func displayName(_ value: VehicleSnapshot) -> String {
+        let listed = model.vehicles.first { $0.id == value.vehicleID }?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return cleanName(!listed.isEmpty && listed != "车辆" ? listed : value.name)
+    }
     private func cleanName(_ value: String) -> String { value.replacingOccurrences(of: #"^\s*\d{2}款\s*"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces).isEmpty ? "车辆" : value.replacingOccurrences(of: #"^\s*\d{2}款\s*"#, with: "", options: .regularExpression) }
     private func mapURL(_ location: String) -> URL? { var components = URLComponents(string: "maps://"); components?.queryItems = [.init(name: "q", value: location)]; return components?.url }
-    private func normalizedTrend(_ points: [VehicleEnergyTrendPoint]) -> [(date: Date, point: VehicleEnergyTrendPoint)] {
-        let iso = ISO8601DateFormatter()
-        let formats = ["yyyy-MM-dd", "MM-dd", "yyyy/MM/dd", "MM/dd"]
-        let parsed = points.compactMap { point -> (Date, VehicleEnergyTrendPoint)? in
-            if let date = iso.date(from: point.date) { return (date, point) }
-            for format in formats { let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = format; if let date = formatter.date(from: point.date) { return (date, point) } }
-            return nil
+    private func latestTrend(_ points: [VehicleEnergyTrendPoint]) -> [VehicleEnergyTrendPoint] {
+        Array(points.sorted { trendDate($0.date) < trendDate($1.date) }.suffix(7))
+    }
+    private struct TrendRow: Identifiable { let index: Int; let label: String; let series: String; let value: Double; var id: String { "\(series)-\(index)" } }
+    private func trendRows(_ points: [VehicleEnergyTrendPoint]) -> [TrendRow] {
+        let ordered = points.sorted { trendDate($0.date) < trendDate($1.date) }
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "zh_CN"); formatter.dateFormat = "M/d"
+        var rows: [TrendRow] = []
+        for (index, point) in ordered.enumerated() {
+            let label = (VehicleWireDate.parse(point.date) ?? dayDate(point.date)).map { formatter.string(from: $0) } ?? String(point.date.suffix(5))
+            if let value = point.equivalentFuelLitresPer100Km { rows.append(.init(index: index, label: label, series: "我的", value: value)) }
+            if let value = point.peerAverageLitresPer100Km { rows.append(.init(index: index, label: label, series: "同车型", value: value)) }
         }
-        return parsed.sorted { $0.0 < $1.0 }.map { (date: $0.0, point: $0.1) }
+        return rows
+    }
+    private func trendLabels(_ rows: [TrendRow]) -> [String] {
+        var labels: [String] = []
+        var seen = Set<Int>()
+        for row in rows where seen.insert(row.index).inserted { labels.append(row.label) }
+        return labels
+    }
+    private func trendDate(_ value: String) -> String {
+        guard let date = VehicleWireDate.parse(value) ?? dayDate(value) else { return value }
+        return ISO8601DateFormatter().string(from: date)
+    }
+    private func dayDate(_ value: String) -> Date? {
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = .current
+        for format in ["yyyy-MM-dd", "yyyy/MM/dd", "MM-dd", "MM/dd"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) { return date }
+        }
+        return nil
     }
 }
 
+private struct VehicleCache: Codable { var vehicles: [VehicleResource]; var snapshot: VehicleSnapshot; var energy: VehicleEnergy? }
+private enum VehicleWireDate {
+    static func parse(_ value: String) -> Date? { VehicleDateParsing.parse(value) }
+}
+
+private extension VehicleSnapshot {
+    func keepingLocation(from previous: VehicleSnapshot?) -> VehicleSnapshot {
+        let incoming = locationName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard incoming.isEmpty, let kept = previous?.locationName?.trimmingCharacters(in: .whitespacesAndNewlines), !kept.isEmpty, previous?.vehicleID == vehicleID else { return self }
+        return VehicleSnapshot(vehicleID: vehicleID, name: name, state: state, chargingState: chargingState, speedKPH: speedKPH, totalRangeKM: totalRangeKM, batteryPercent: batteryPercent, fuelPercent: fuelPercent, electricRangeKM: electricRangeKM, fuelRangeKM: fuelRangeKM, odometerKM: odometerKM, evMileageKM: evMileageKM, hevMileageKM: hevMileageKM, cabinTemperatureC: cabinTemperatureC, locationName: kept, signalStrength: signalStrength, online: online, securityState: securityState, driveMode: driveMode, okIndicator: okIndicator, powerOutputKW: powerOutputKW, engineCoolantC: engineCoolantC, health: health, doorsOpen: doorsOpen, doorsUnlocked: doorsUnlocked, windowsOpen: windowsOpen, hoodOpen: hoodOpen, trunkOpen: trunkOpen, skylightOpen: skylightOpen, tirePressureKPA: tirePressureKPA, chargingPowerKW: chargingPowerKW, remainingChargeMinutes: remainingChargeMinutes, updatedAt: updatedAt)
+    }
+}
 private extension VehicleSnapshot.State { var label: String { switch self { case .parked: "已熄火"; case .ready: "已启动"; case .driving: "行驶中"; case .charging: "充电中"; case .fault: "车辆异常" } } }
 private extension Color { static let openHomeAuto = Color(red: 0.435, green: 0.396, blue: 0.349) }

@@ -1,5 +1,5 @@
 import { loadCentralSession, persistCentralSession, saveCentralSession, type CentralSession } from "./central";
-import { communityCodes, communityIds, communityNames, dedupeDoors, deviceId, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider";
+import { communityCodes, communityIds, communityNames, dedupeDoors, deviceId, doorSortState, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider";
 import { accessRoute } from "./provider-bundle.ts";
 import { personalDisplayName } from "./account-name";
 
@@ -36,10 +36,12 @@ export async function centralDoors(accountId: string) {
       // Fall through to the already verified home-list endpoint below.
     }
     if (all && isSuccess(all)) {
+      let commonOrder: Map<number, number> | null = null;
+      try { commonOrder = new Map(doorSortState(all.data).common.map((id, index) => [id, index])); } catch { commonOrder = null; }
       doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId), names.get(communityId)).map((door) => ({
         ...door,
-        providerFeatured: featuredIds.has(`${door.communityId}:${door.doorControlId}`),
-        providerOrder: featuredOrder.get(`${door.communityId}:${door.doorControlId}`),
+        providerFeatured: commonOrder ? commonOrder.has(door.doorControlId) : featuredIds.has(`${door.communityId}:${door.doorControlId}`),
+        providerOrder: commonOrder ? commonOrder.get(door.doorControlId) : featuredOrder.get(`${door.communityId}:${door.doorControlId}`),
       })));
       continue;
     }

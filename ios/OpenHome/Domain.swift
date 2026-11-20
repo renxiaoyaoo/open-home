@@ -42,6 +42,7 @@ struct OperationResult: Codable, Sendable, Equatable {
 protocol GateProvider: Sendable {
     func resources() async throws -> [GateResource]
     func setSelected(resourceID: String, selected: Bool) async throws
+    func setOrder(ids: [String], previousIDs: [String]) async throws
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult
     func password(resourceID: String) async throws -> GatePassword
 }
@@ -95,12 +96,59 @@ struct LockDetail: Codable, Sendable, Equatable {
     let battery: String?
     let cameraBattery: String?
     let batteryUpdatedAt: String?
+
+    private enum CodingKeys: String, CodingKey { case name, wifiName, wifiSignal, battery, cameraBattery, batteryUpdatedAt }
+    init(name: String?, wifiName: String?, wifiSignal: String?, battery: String?, cameraBattery: String?, batteryUpdatedAt: String?) {
+        self.name = name; self.wifiName = wifiName; self.wifiSignal = wifiSignal; self.battery = battery; self.cameraBattery = cameraBattery; self.batteryUpdatedAt = batteryUpdatedAt
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decodeIfPresent(String.self, forKey: .name)
+        wifiName = try values.decodeIfPresent(String.self, forKey: .wifiName)
+        wifiSignal = Self.text(values, .wifiSignal)
+        battery = Self.text(values, .battery)
+        cameraBattery = Self.text(values, .cameraBattery)
+        batteryUpdatedAt = Self.text(values, .batteryUpdatedAt)
+    }
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(name, forKey: .name)
+        try values.encodeIfPresent(wifiName, forKey: .wifiName)
+        try values.encodeIfPresent(wifiSignal, forKey: .wifiSignal)
+        try values.encodeIfPresent(battery, forKey: .battery)
+        try values.encodeIfPresent(cameraBattery, forKey: .cameraBattery)
+        try values.encodeIfPresent(batteryUpdatedAt, forKey: .batteryUpdatedAt)
+    }
+    private static func text(_ values: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> String? {
+        if let text = try? values.decode(String.self, forKey: key) { return text }
+        if let number = try? values.decode(Double.self, forKey: key) {
+            return number.rounded() == number ? String(Int(number)) : String(number)
+        }
+        return nil
+    }
 }
 struct LockEvent: Codable, Sendable, Equatable, Identifiable {
     let time: String
     let content: String
     let image: URL?
     var id: String { "\(time)|\(content)" }
+
+    private enum CodingKeys: String, CodingKey { case time, content, image }
+    init(time: String, content: String, image: URL?) { self.time = time; self.content = content; self.image = image }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        content = try values.decodeIfPresent(String.self, forKey: .content) ?? ""
+        image = try values.decodeIfPresent(URL.self, forKey: .image)
+        if let text = try? values.decode(String.self, forKey: .time) { time = text }
+        else if let number = try? values.decode(Double.self, forKey: .time) { time = number.rounded() == number ? String(Int(number)) : String(number) }
+        else { time = "" }
+    }
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(time, forKey: .time)
+        try values.encode(content, forKey: .content)
+        try values.encodeIfPresent(image, forKey: .image)
+    }
 }
 struct LockCapture: Codable, Sendable, Equatable, Identifiable {
     let id: String

@@ -18,7 +18,7 @@ process.env.OPENHOME_SESSION_ENCRYPTION_KEY = "00".repeat(32);
 const { OpenDeviceProvider } = await import("../lib/opendevice-provider.ts");
 const { isProviderBundle } = await import("../lib/provider-bundle.ts");
 const { createDoorHandle, readDoorHandle } = await import("../lib/door-handle.ts");
-const { UpstreamError, absorbSetCookies, appendRawSessionId, communityCodes, communityIds, communityNames, cookieHeader, dedupeDoors, doorPassword, doorSortBody, encryptMobile, isAuthenticationExpired, isSmsAccepted, isSuccess, loginCredential, normalizeDoors, openDoorBody, parseUpstreamCookies, providerPost, providerUrl, serializeUpstreamCookies, signHeaders, signMobileBody, supportsDoorPassword } = await import("../lib/provider.ts");
+const { UpstreamError, absorbSetCookies, appendRawSessionId, communityCodes, communityIds, communityNames, cookieHeader, dedupeDoors, doorPassword, doorSortBody, doorSortOrderBody, encryptMobile, isAuthenticationExpired, isSmsAccepted, isSuccess, loginCredential, normalizeDoors, openDoorBody, parseUpstreamCookies, providerPost, providerUrl, serializeUpstreamCookies, signHeaders, signMobileBody, supportsDoorPassword } = await import("../lib/provider.ts");
 const { publicDoor } = await import("../lib/public-door.ts");
 const { personalDisplayName } = await import("../lib/account-name.ts");
 
@@ -349,6 +349,19 @@ test("rebuilds the provider doorSort groups when a common door is added or remov
   });
   assert.deepEqual(doorSortBody(payload, 8, 40, false), {
     list: [{ commondoorControlIds: [], gatedoorControlIds: [10, 40], buildingDoorList: [20], customDoorList: [30] }],
+    method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
+  });
+  assert.deepEqual(doorSortOrderBody(payload, 8, [10]), {
+    list: [{ commondoorControlIds: [10], gatedoorControlIds: [40], buildingDoorList: [20], customDoorList: [30] }],
+    method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
+  });
+  const pinned = {
+    ...payload,
+    commonlyUsedDoor: [{ doorControlId: 20, doorControlUsefor: "单元门或楼栋门" }, { doorControlId: 40, doorControlUsefor: "大门" }],
+    buildingDoorList: [],
+  };
+  assert.deepEqual(doorSortOrderBody(pinned, 8, [10]), {
+    list: [{ commondoorControlIds: [20, 10], gatedoorControlIds: [40], buildingDoorList: [], customDoorList: [30] }],
     method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
   });
 });

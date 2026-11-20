@@ -95,6 +95,12 @@ extension APIClient {
         let _: Envelope<RevokedCenterSession> = try await request("client/session", method: "DELETE")
     }
 
+    func updateCenterDeviceName(_ name: String) async throws {
+        struct Body: Encodable, Sendable { let deviceName: String }
+        struct Updated: Decodable, Sendable { let deviceID: String?; let deviceName: String? }
+        let _: Envelope<Updated> = try await send("client/session", method: "PATCH", body: Body(deviceName: name))
+    }
+
     private struct RevokedCenterSession: Decodable, Sendable { let deviceId: String }
 }
 
@@ -126,12 +132,30 @@ struct RemoteLiveActivityRegistrar: LiveActivityRegistrar {
 struct RemoteGateProvider: GateProvider {
     let client: APIClient
     private struct Selection: Decodable, Sendable { let selected: Bool }
+    private struct OrderBody: Encodable, Sendable { let ids: [String]; let previousIds: [String] }
+    private struct OrderResult: Decodable, Sendable { let ids: [String] }
     func resources() async throws -> [GateResource] {
         let response: Envelope<[GateResource]> = try await client.get("doors")
         return response.data
     }
     func setSelected(resourceID: String, selected: Bool) async throws {
         let _: Envelope<Selection> = try await client.send("doors/\(resourceID)", method: "PATCH", body: ["selected": selected])
+    }
+    func setOrder(ids: [String], previousIDs: [String]) async throws {
+        do {
+            let _: Envelope<OrderResult> = try await client.send("doors/order", method: "PUT", body: OrderBody(ids: ids, previousIds: previousIDs))
+        } catch let error as APIError {
+            guard case .server(let status, _) = error, status == 404 || status == 405 else { throw error }
+            let previous = Set(previousIDs)
+            let next = Set(ids)
+            for id in previousIDs where !next.contains(id) { try await setSelected(resourceID: id, selected: false) }
+            for id in ids where !previous.contains(id) { try await setSelected(resourceID: id, selected: true) }
+            let projected = previousIDs.filter { next.contains($0) } + ids.filter { !previous.contains($0) }
+            if projected != ids {
+                for id in ids { try await setSelected(resourceID: id, selected: false) }
+                for id in ids { try await setSelected(resourceID: id, selected: true) }
+            } }
+        }
     }
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult {
         try await client.request("doors/\(resourceID)/open", method: "POST", headers: ["Idempotency-Key": idempotencyKey])
@@ -336,7 +360,7 @@ actor RemoteVehicleProvider: VehicleProvider {
     init(client: APIClient) { self.client = client }
 
     func vehicles() async throws -> [VehicleResource] {
-        if availableVehicles.isEmpty { try await bootstrap() }
+        try await bootstrap()
         return availableVehicles.map { .init(id: $0.id, name: $0.name) }
     }
 
@@ -368,21 +392,26 @@ actor RemoteVehicleProvider: VehicleProvider {
     private func bootstrap() async throws {
         let response: Envelope<VehicleWire.Bootstrap> = try await client.get("auto/bootstrap")
         guard let first = response.data.vehicles.first else { throw ProviderError.invalidResponse }
+        let selectedID = vehicle?.id
         availableVehicles = response.data.vehicles
-        vehicle = first
-        if let initial = response.data.snapshot {
-            initialDetail = .init(summary: normalize(initial.summary, fallback: first), energy: initial.energy)
+        vehicle = availableVehicles.first { $0.id == selectedID } ?? first
+        if let initial = response.data.snapshot, let vehicle {
+            initialDetail = .init(summary: normalize(initial.summary, fallback: vehicle), energy: initial.energy)
         }
     }
 
     private func normalize(_ value: VehicleWire.Summary, fallback: VehicleWire.Vehicle) -> VehicleSnapshot {
         let state: VehicleSnapshot.State
-        if value.health?.values.contains("warning") == true { state = .fault }
-        else if value.chargingState == "charging" { state = .charging }
+        if value.chargingState == "charging" { state = .charging }
         else if value.powerState == "on", (value.speedKph ?? 0) > 0 { state = .driving }
         else if value.powerState == "on" { state = .ready }
+        else if value.powerState == "off" { state = .parked }
+        else if value.health?.values.contains("warning") == true { state = .fault }
         else { state = .parked }
-        return .init(vehicleID: value.id, name: value.name.isEmpty ? fallback.name : value.name, state: state, chargingState: value.chargingState, speedKPH: value.speedKph, totalRangeKM: value.estimatedRangeKm, batteryPercent: value.tractionBatteryPercent, fuelPercent: value.fuelPercent, electricRangeKM: value.electricRangeKm, fuelRangeKM: value.fuelRangeKm, odometerKM: value.odometerKm, evMileageKM: value.evMileageKm, hevMileageKM: value.hevMileageKm, cabinTemperatureC: value.cabinTemperatureC, locationName: value.locationName, signalStrength: value.signalStrength, online: value.online, securityState: value.securityState, driveMode: value.driveMode, okIndicator: value.okIndicator, powerOutputKW: value.powerOutputKw, engineCoolantC: value.engineCoolantC, health: value.health, doorsOpen: value.doorsOpen, doorsUnlocked: value.doorsUnlocked, windowsOpen: value.windowsOpen, hoodOpen: value.hoodOpen, trunkOpen: value.trunkOpen, skylightOpen: value.skylightOpen, tirePressureKPA: value.tirePressureKpa, chargingPowerKW: value.chargingPowerKw, remainingChargeMinutes: value.remainingChargeMinutes, updatedAt: value.updatedAt.flatMap(VehicleWire.date))
+        let listed = fallback.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reported = value.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = !listed.isEmpty && listed != "车辆" ? listed : (reported.isEmpty ? "车辆" : reported)
+        return .init(vehicleID: value.id, name: name, state: state, chargingState: value.chargingState, speedKPH: value.speedKph, totalRangeKM: value.estimatedRangeKm, batteryPercent: value.tractionBatteryPercent, fuelPercent: value.fuelPercent, electricRangeKM: value.electricRangeKm, fuelRangeKM: value.fuelRangeKm, odometerKM: value.odometerKm, evMileageKM: value.evMileageKm, hevMileageKM: value.hevMileageKm, cabinTemperatureC: value.cabinTemperatureC, locationName: value.locationName, signalStrength: value.signalStrength, online: value.online, securityState: value.securityState, driveMode: value.driveMode, okIndicator: value.okIndicator, powerOutputKW: value.powerOutputKw, engineCoolantC: value.engineCoolantC, health: value.health, doorsOpen: value.doorsOpen, doorsUnlocked: value.doorsUnlocked, windowsOpen: value.windowsOpen, hoodOpen: value.hoodOpen, trunkOpen: value.trunkOpen, skylightOpen: value.skylightOpen, tirePressureKPA: value.tirePressureKpa, chargingPowerKW: value.chargingPowerKw, remainingChargeMinutes: value.remainingChargeMinutes, updatedAt: value.updatedAt.flatMap(VehicleWire.date))
     }
 }
 
@@ -402,5 +431,26 @@ private enum VehicleWire {
         let doorsOpen: VehicleCornerState?; let doorsUnlocked: VehicleCornerState?; let windowsOpen: VehicleCornerState?
         let hoodOpen: Bool?; let trunkOpen: Bool?; let skylightOpen: Bool?; let tirePressureKpa: VehicleTirePressure?
     }
-    static func date(_ value: String) -> Date? { ISO8601DateFormatter().date(from: value) }
+    static func date(_ value: String) -> Date? { VehicleDateParsing.parse(value) }
+}
+
+enum VehicleDateParsing {
+    static func parse(_ value: String) -> Date? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: trimmed) { return date }
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: trimmed) { return date }
+        let stripped = trimmed.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
+        if stripped != trimmed, let date = iso.date(from: stripped) { return date }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) { return date }
+        }
+        return nil
+    }
 }

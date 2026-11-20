@@ -8,14 +8,27 @@ import UIKit
     var devices: [LockDevice] = []; var selectedDeviceID = ""; var detail: LockDetail?
     var dynamics: [LockEvent] = []; var security: [LockEvent] = []; var operations: [LockEvent] = []; var captures: [LockCapture] = []
     var cursors: [RecordKind: String] = [:]; var captureCursor: String?; var temporaryPassword: LockTemporaryPassword?
-    var isLoading = false; var loadingMore: String?; var isCreatingPassword = false; var message: String?
+    var isLoading = false; var loadingMore: String?; var isCreatingPassword = false; var message: String?; var notice: String?
     private let provider: any LockProvider
-    init(provider: any LockProvider) { self.provider = provider }
+    init(provider: any LockProvider) {
+        self.provider = provider
+        if let cached = ModuleContentStore.load("lock.json", as: LockCache.self) {
+            devices = cached.devices; selectedDeviceID = cached.selectedDeviceID; detail = cached.detail
+            dynamics = cached.dynamics; security = cached.security; operations = cached.operations; captures = cached.captures
+        }
+    }
+
+    func discardDisplayedContent() {
+        devices = []; selectedDeviceID = ""; detail = nil; dynamics = []; security = []; operations = []; captures = []; temporaryPassword = nil; message = nil; notice = nil
+    }
 
     func load() async {
+        let revision = ModuleContentStore.revision
+        guard !ModuleContentStore.isBlocked("lock.json") else { discardDisplayedContent(); return }
         guard !isLoading else { return }; isLoading = true; defer { isLoading = false }
         do {
             if devices.isEmpty { devices = try await provider.devices(); selectedDeviceID = devices.first?.id ?? "" }
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("lock.json") else { discardDisplayedContent(); return }
             guard !selectedDeviceID.isEmpty else { throw ProviderError.invalidResponse }
             async let nextDetail = provider.detail(deviceID: selectedDeviceID)
             async let nextDynamics = provider.dynamics(deviceID: selectedDeviceID, cursor: nil)
@@ -23,11 +36,17 @@ import UIKit
             async let nextOperations = provider.operationLogs(deviceID: selectedDeviceID, cursor: nil)
             async let nextCaptures = provider.captures(deviceID: selectedDeviceID, cursor: nil)
             let (loadedDetail, d, s, o, c) = try await (nextDetail, nextDynamics, nextSecurity, nextOperations, nextCaptures)
+            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("lock.json") else { discardDisplayedContent(); return }
             detail = loadedDetail; dynamics = d.items; security = s.items; operations = o.items; captures = c.items
             cursors = [.dynamics: d.nextCursor, .security: s.nextCursor, .operation: o.nextCursor].compactMapValues { $0 }
             captureCursor = c.nextCursor; message = nil
+            ModuleContentStore.save("lock.json", LockCache(devices: devices, selectedDeviceID: selectedDeviceID, detail: loadedDetail, dynamics: d.items, security: s.items, operations: o.items, captures: c.items))
         } catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
+        catch let error as APIError {
+            if case .providerAuthenticationRequired = error { discardDisplayedContent() }
+            message = error.localizedDescription
+        }
         catch { message = error.localizedDescription }
     }
     func select(_ id: String) async { selectedDeviceID = id; detail = nil; dynamics = []; security = []; operations = []; captures = []; cursors = [:]; captureCursor = nil; temporaryPassword = nil; await load() }
@@ -37,18 +56,29 @@ import UIKit
             let page: LockPage<LockEvent>
             switch kind { case .dynamics: page = try await provider.dynamics(deviceID: selectedDeviceID, cursor: cursor); case .security: page = try await provider.securityLogs(deviceID: selectedDeviceID, cursor: cursor); case .operation: page = try await provider.operationLogs(deviceID: selectedDeviceID, cursor: cursor) }
             let existing = Set(records(kind).map(\.id)); let additions = page.items.filter { !existing.contains($0.id) }; setRecords(kind, records(kind) + additions); cursors[kind] = additions.isEmpty || page.nextCursor == cursor ? nil : page.nextCursor; message = nil
-        } catch { message = error.localizedDescription }
+        } catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
+        catch { message = error.localizedDescription }
     }
     func loadMoreCaptures() async {
         guard let cursor = captureCursor, loadingMore == nil else { return }; loadingMore = "captures"; defer { loadingMore = nil }
         do { let page = try await provider.captures(deviceID: selectedDeviceID, cursor: cursor); let existing = Set(captures.map(\.id)); let additions = page.items.filter { !existing.contains($0.id) }; captures += additions; captureCursor = additions.isEmpty || page.nextCursor == cursor ? nil : page.nextCursor; message = nil }
+        catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
         catch { message = error.localizedDescription }
     }
     func records(_ kind: RecordKind) -> [LockEvent] { switch kind { case .dynamics: dynamics; case .security: security; case .operation: operations } }
     private func setRecords(_ kind: RecordKind, _ value: [LockEvent]) { switch kind { case .dynamics: dynamics = value; case .security: security = value; case .operation: operations = value } }
+    func copy(_ password: String) {
+        UIPasteboard.general.string = password
+        notice = "密码已复制"
+        Task { try? await Task.sleep(for: .seconds(2.2)); if notice == "密码已复制" { notice = nil } }
+    }
     func createPassword() async {
         guard !selectedDeviceID.isEmpty, !isCreatingPassword else { return }; isCreatingPassword = true; defer { isCreatingPassword = false }
-        do { let value = try await provider.createTemporaryPassword(deviceID: selectedDeviceID); temporaryPassword = value; UIPasteboard.general.string = value.password; message = nil }
+        do { let value = try await provider.createTemporaryPassword(deviceID: selectedDeviceID); temporaryPassword = value; copy(value.password) }
+        catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
         catch { message = error.localizedDescription }
     }
 }
@@ -56,63 +86,163 @@ import UIKit
 struct LockView: View {
     private enum Page: String, CaseIterable, Identifiable { case security = "安防", captures = "抓拍相册"; var id: Self { self } }
     private enum Viewer: Identifiable { case image(URL), video(URL); var id: String { switch self { case .image(let url): "image:\(url)"; case .video(let url): "video:\(url)" } } }
+    @Environment(AppModel.self) private var appModel
     @State private var model: LockViewModel; @State private var page = Page.security; @State private var recordKind = LockViewModel.RecordKind.dynamics; @State private var viewer: Viewer?
     init(provider: any LockProvider) { _model = State(initialValue: LockViewModel(provider: provider)) }
     var body: some View {
-        ScrollView {
-            if let detail = model.detail { VStack(spacing: 12) { status(detail); passwordCard; recordsCard }.padding(14).frame(maxWidth: 520) }
-            else if model.isLoading { ProgressView().padding(.top, 100) }
-            else { ContentUnavailableView("门锁暂时未加载", systemImage: "lock.shield", description: Text(model.message ?? "下拉重试")) }
-        }.task { if model.detail == nil { await model.load() } }.refreshable { await model.load() }.sheet(item: $viewer) { MediaViewer(item: $0) }
+        Group {
+            if let detail = model.detail {
+                List {
+                    Section {
+                        infoRow("Wi-Fi", detail.wifiName ?? "未知")
+                        infoRow("信号", signalQuality(detail.wifiSignal), tone: statusTone(signalQuality(detail.wifiSignal)))
+                        infoRow("更新时间", detail.batteryUpdatedAt.map { displayTime($0) } ?? "未知")
+                        batteryRow("门锁电量", detail.battery)
+                        batteryRow("猫眼电量", detail.cameraBattery)
+                    } header: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.weight(.semibold)).foregroundStyle(.primary).textCase(nil)
+                            Spacer()
+                            if model.devices.count > 1 {
+                                Menu { ForEach(model.devices) { device in Button(device.name) { Task { await model.select(device.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") }
+                                    .accessibilityLabel("选择门锁")
+                                    .textCase(nil)
+                            }
+                        }
+                    }
+                    if let value = model.temporaryPassword {
+                        Section {
+                            HStack(spacing: 12) {
+                                Text("临时密码")
+                                Spacer(minLength: 12)
+                                Text(value.password).font(.system(size: 28, weight: .semibold, design: .monospaced)).foregroundStyle(.primary)
+                                Button { model.copy(value.password) } label: {
+                                    Image(systemName: "doc.on.doc").font(.title2.weight(.semibold))
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("复制密码")
+                            }
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let remaining = max(0, Int(value.expiresAt.timeIntervalSince(context.date)))
+                                infoRow("剩余", String(format: "%02d:%02d", remaining / 60, remaining % 60))
+                            }
+                        }
+                    }
+                    Section {
+                        Button { Task { await model.createPassword() } } label: {
+                            Group {
+                                if model.temporaryPassword == nil { Label("查看密码", systemImage: "key") }
+                                else { Text("重新生成") }
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .disabled(model.isCreatingPassword)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                    Section {
+                        Picker("内容", selection: $page) { ForEach(Page.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
+                        if page == .security {
+                            Picker("记录", selection: $recordKind) { ForEach(LockViewModel.RecordKind.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
+                            let records = model.records(recordKind)
+                            if records.isEmpty { Text("暂无记录").foregroundStyle(.secondary) }
+                            ForEach(records) { event in eventRow(event) }
+                            if model.cursors[recordKind] != nil { ProgressView().frame(maxWidth: .infinity).task(id: "\(recordKind.id)|\(model.cursors[recordKind] ?? "")") { await model.loadMore(recordKind) } }
+                        } else {
+                            if model.captures.isEmpty { Text("暂无抓拍").foregroundStyle(.secondary) }
+                            else { captureGrid }
+                            if model.captureCursor != nil { ProgressView().frame(maxWidth: .infinity).task(id: model.captureCursor) { await model.loadMoreCaptures() } }
+                        }
+                    }
+                    if let message = model.message, !Self.isCancellation(message) { Section { Text(message).foregroundStyle(.red) } }
+                }
+                .listStyle(.insetGrouped)
+            } else if model.isLoading { ProgressView("正在读取门锁").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else { OpenHomeUnavailable(title: "还没有门锁内容", systemImage: "lock.shield", description: model.message ?? "连接恢复后可以重新读取。", actionTitle: "重试") { Task { await model.load() } } }
+        }
+        .overlay(alignment: .bottom) { if let notice = model.notice { Text(notice).font(.footnote.weight(.medium)).foregroundStyle(Color.green).padding(.horizontal, 14).padding(.vertical, 10).background(.ultraThinMaterial, in: Capsule()).padding(.bottom, 16) } }
+        .onChange(of: appModel.sessionRevision) { _, _ in model.discardDisplayedContent() }
+        .task { await model.load() }.refreshable { await model.load() }.sheet(item: $viewer) { MediaViewer(item: $0) }
     }
-    private func status(_ detail: LockDetail) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack { VStack(alignment: .leading, spacing: 3) { Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.bold()); HStack(spacing: 6) { Text(detail.wifiName.map { "Wi‑Fi：\($0)" } ?? "Wi‑Fi 名称未知").lineLimit(1); if let updated = detail.batteryUpdatedAt { Text("· 更新于 \(displayTime(updated))").lineLimit(1) } }.font(.caption).foregroundStyle(.white.opacity(0.7)) }; Spacer(); if model.devices.count > 1 { Menu { ForEach(model.devices) { device in Button(device.name) { Task { await model.select(device.id) } } } } label: { Image(systemName: "chevron.up.chevron.down") } } }
-            HStack(spacing: 10) { metric("门锁电量", detail.battery.map { "\($0)%" } ?? "—", "battery.75percent"); metric("猫眼电量", detail.cameraBattery.map { "\($0)%" } ?? "—", "camera"); metric("Wi‑Fi 信号", signalQuality(detail.wifiSignal), "wifi") }
-        }.padding(18).foregroundStyle(.white).background(Color.openHomeLock, in: RoundedRectangle(cornerRadius: 18))
+    private func infoRow(_ title: String, _ value: String, monospaced: Bool = false, tone: Color = .secondary) -> some View {
+        LabeledContent(title) {
+            Text(value).font(monospaced ? .body.monospaced() : .body).multilineTextAlignment(.trailing).foregroundStyle(tone)
+        }
+    }
+    private func batteryRow(_ title: String, _ raw: String?) -> some View {
+        let digits = raw?.filter(\.isNumber)
+        let percent = digits.flatMap(Int.init)
+        return HStack(spacing: 10) {
+            Text(title)
+            Spacer(minLength: 12)
+            if let percent {
+                Text("\(percent)%").foregroundStyle(batteryTone(raw))
+                ProgressView(value: min(max(Double(percent), 0), 100), total: 100)
+                    .tint(batteryTone(raw))
+                    .frame(width: 56)
+            } else {
+                Text("—").foregroundStyle(.secondary)
+            }
+        }
+    }
+    private static func isCancellation(_ value: String) -> Bool {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return text == "canceled" || text == "cancelled"
     }
     private var passwordCard: some View {
         HStack(spacing: 12) {
             Image(systemName: "key.fill").frame(width: 42, height: 42).background(Color.openHomeLock.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) { Text("一次性临时密码").font(.caption).foregroundStyle(.secondary); if let value = model.temporaryPassword { Text(value.password).font(.system(.title3, design: .monospaced, weight: .semibold)).tracking(2); Text("有效至 \(value.expiresAt.formatted(date: .omitted, time: .shortened)) · 已复制").font(.caption2).foregroundStyle(.secondary) } else { Text("30 分钟内有效").font(.subheadline.weight(.medium)) } }
-            Spacer(); Button(model.temporaryPassword == nil ? "查看密码" : "重新生成") { Task { await model.createPassword() } }.buttonStyle(.borderedProminent).tint(.openHomeLock).disabled(model.isCreatingPassword)
-        }.frame(minHeight: 76).padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
+            Spacer(); Button(model.temporaryPassword == nil ? "查看密码" : "重新生成") { Task { await model.createPassword() } }.buttonStyle(.borderedProminent).disabled(model.isCreatingPassword)
+        }
     }
     private var recordsCard: some View {
-        VStack(spacing: 12) { Picker("内容", selection: $page) { ForEach(Page.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented); if page == .security { securityRecords } else { captureGrid }; if let message = model.message { Text(message).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) } }
-            .padding(16).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 16))
+        VStack(spacing: 12) { Picker("内容", selection: $page) { ForEach(Page.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented); if page == .security { securityRecords } else { captureGrid }; if let message = model.message { Text(message).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) } }
     }
     private var securityRecords: some View {
         VStack(spacing: 10) {
             Picker("记录", selection: $recordKind) { ForEach(LockViewModel.RecordKind.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
             let records = model.records(recordKind)
-            if records.isEmpty { Text("暂无记录").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 90) } else { ForEach(records) { event in eventRow(event) } }
+            if records.isEmpty { ContentUnavailableView("暂无记录", systemImage: "list.bullet", description: Text("新的门锁记录会出现在这里")).frame(minHeight: 160) } else { ForEach(records) { event in eventRow(event) } }
             if let cursor = model.cursors[recordKind] { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: "\(recordKind.id)|\(cursor)") { await model.loadMore(recordKind) } }
         }
     }
     private func eventRow(_ event: LockEvent) -> some View {
-        Button { if let image = event.image { viewer = .image(image) } } label: { HStack(alignment: .top, spacing: 10) { VStack(alignment: .leading, spacing: 2) { Text(event.content).font(.subheadline).foregroundStyle(.primary); Text(displayTime(event.time)).font(.caption).foregroundStyle(.secondary) }; Spacer(); if let image = event.image { captureImage(image).frame(width: 60, height: 46).clipShape(RoundedRectangle(cornerRadius: 8)) } }.padding(.vertical, 5) }.buttonStyle(.plain).disabled(event.image == nil)
+        Button { if let image = event.image { viewer = .image(image) } } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.content).font(.body).foregroundStyle(.primary).lineLimit(2)
+                    Text(displayTime(event.time)).font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if let image = event.image { captureImage(image).frame(width: 64, height: 48).clipShape(RoundedRectangle(cornerRadius: 8)) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .disabled(event.image == nil)
     }
     private var captureGrid: some View {
         VStack(spacing: 10) {
-            if model.captures.isEmpty { Text("暂无抓拍").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 90) }
+            if model.captures.isEmpty { ContentUnavailableView("暂无抓拍", systemImage: "photo", description: Text("近 7 天的照片和视频会出现在这里")).frame(minHeight: 160) }
             else { LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 10) { ForEach(model.captures) { capture in Button { viewer = capture.video.map(Viewer.video) ?? .image(capture.image) } label: { VStack(alignment: .leading, spacing: 5) { ZStack { captureImage(capture.image); if capture.video != nil { Image(systemName: "play.fill").font(.headline).foregroundStyle(.white).padding(9).background(.black.opacity(0.55), in: Circle()) } }.aspectRatio(4 / 3, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10)); Text(capture.video == nil ? "照片" : "视频").font(.caption.bold()).foregroundStyle(.primary); Text(displayTime(capture.time)).font(.caption2).foregroundStyle(.secondary).lineLimit(1) } }.buttonStyle(.plain) } } }
             if let cursor = model.captureCursor { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: cursor) { await model.loadMoreCaptures() } }
         }
     }
     private func captureImage(_ url: URL) -> some View { RotatedCaptureImage(url: url) }
     private func displayTime(_ value: String) -> String {
-        let date: Date?
-        if let seconds = Double(value), seconds > 1_000_000_000 { date = Date(timeIntervalSince1970: seconds) }
-        else { let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; date = parser.date(from: value) ?? ISO8601DateFormatter().date(from: value) }
-        guard let date else { return value }
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "zh_CN"); formatter.dateFormat = "MM-dd HH:mm"
-        return formatter.string(from: date)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "未知" }
+        guard let date = openHomeDate(trimmed) else { return trimmed }
+        return openHomeTimeText(date)
     }
     private func metric(_ label: String, _ value: String, _ symbol: String) -> some View { VStack(spacing: 5) { Image(systemName: symbol); Text(value).font(.headline); Text(label).font(.caption2).foregroundStyle(.white.opacity(0.7)) }.frame(maxWidth: .infinity) }
     private func signalQuality(_ value: String?) -> String {
         guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return "未知" }
-        if raw.contains("优") || raw.contains("强") || raw.lowercased().contains("good") { return "良好" }
+        if raw.contains("优") || raw.contains("强") || raw.contains("好") || raw.lowercased().contains("good") { return "良好" }
         if raw.contains("中") || raw.contains("一般") || raw.lowercased().contains("fair") { return "一般" }
         if raw.contains("差") || raw.contains("弱") || raw.lowercased().contains("poor") { return "较弱" }
         let number = Double(raw.filter { $0.isNumber || $0 == "-" || $0 == "." })
@@ -123,7 +253,7 @@ struct LockView: View {
 
     private struct MediaViewer: View {
         let item: Viewer; @Environment(\.dismiss) private var dismiss
-        var body: some View { NavigationStack { Group { switch item { case .image(let url): RotatedCaptureImage(url: url).padding(); case .video(let url): VideoPlayer(player: AVPlayer(url: url)) } }.background(.black).navigationTitle("抓拍").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } } } }
+        var body: some View { NavigationStack { Group { switch item { case .image(let url): RotatedCaptureImage(url: url).padding(); case .video(let url): RotatedVideo(url: url) } }.background(.black).navigationTitle("抓拍").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } } } }
     }
 }
 
@@ -145,6 +275,29 @@ private struct RotatedCaptureImage: View {
             }
         }.clipped()
     }
+}
+
+private struct RotatedVideo: View {
+    let url: URL
+    var body: some View {
+        GeometryReader { proxy in
+            VideoPlayer(player: AVPlayer(url: url))
+                .frame(width: proxy.size.height, height: proxy.size.width)
+                .rotationEffect(.degrees(90))
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .aspectRatio(3 / 4, contentMode: .fit)
+    }
+}
+
+private struct LockCache: Codable {
+    var devices: [LockDevice]
+    var selectedDeviceID: String
+    var detail: LockDetail
+    var dynamics: [LockEvent]
+    var security: [LockEvent]
+    var operations: [LockEvent]
+    var captures: [LockCapture]
 }
 
 private extension Color { static let openHomeLock = Color(red: 0.397, green: 0.438, blue: 0.333) }

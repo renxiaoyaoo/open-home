@@ -140,6 +140,7 @@ private struct DebugDirectAuthenticator: DirectProviderAuthenticator {
 private struct DebugGateProvider: GateProvider {
     func resources() async throws -> [GateResource] { [] }
     func setSelected(resourceID: String, selected: Bool) async throws {}
+    func setOrder(ids: [String], previousIDs: [String]) async throws {}
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult { .init(ok: true, message: "已打开") }
     func password(resourceID: String) async throws -> GatePassword { .init(password: "0000", validUntil: .now.addingTimeInterval(300)) }
 }

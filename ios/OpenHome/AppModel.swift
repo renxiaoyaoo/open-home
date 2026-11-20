@@ -26,6 +26,14 @@ final class AppModel {
             case .auto: "车辆"
             }
         }
+        var tabTitle: String {
+            switch self {
+            case .gate: "门禁"
+            case .living: "家电"
+            case .lock: "门锁"
+            case .auto: "车辆"
+            }
+        }
         var symbol: String {
             switch self {
             case .gate: "door.left.hand.open"
@@ -89,14 +97,17 @@ final class AppModel {
         disconnect(connectionStore: connectionStore)
     }
 
-    func validateCenter(connectionStore: ConnectionStore = ConnectionStore()) async {
+    func validateCenter(deviceName: String? = nil, connectionStore: ConnectionStore = ConnectionStore()) async {
         guard let connection, connection.mode == .center, let baseURL = connection.centerURL else {
             centerState = .disconnected
             return
         }
         centerState = .validating
+        let client = APIClient(baseURL: baseURL, credential: { try connectionStore.centerToken() })
         do {
-            centerState = .connected(try await APIClient(baseURL: baseURL, credential: { try connectionStore.centerToken() }).centerSession())
+            let trimmed = deviceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty { try? await client.updateCenterDeviceName(trimmed) }
+            centerState = .connected(try await client.centerSession())
         } catch APIError.unauthorized {
             centerState = .revoked
         } catch {
@@ -104,9 +115,31 @@ final class AppModel {
         }
     }
 
+    func discardModuleCache(_ provider: ProviderID, blockReload: Bool = true) {
+        let file: String
+        switch provider {
+        case .gate: file = "gate-resources.json"
+        case .living: file = "dryer.json"
+        case .lock: file = "lock.json"
+        case .auto: file = "vehicle.json"
+        }
+        if blockReload { ModuleContentStore.block(file) } else { ModuleContentStore.remove(file) }
+        sessionRevision += 1
+    }
+
+    func restoreModule(_ provider: ProviderID) {
+        switch provider {
+        case .gate: ModuleContentStore.unblock("gate-resources.json")
+        case .living: ModuleContentStore.unblock("dryer.json")
+        case .lock: ModuleContentStore.unblock("lock.json")
+        case .auto: ModuleContentStore.unblock("vehicle.json")
+        }
+        sessionRevision += 1
+    }
+
     func signOutSelectedDirectProvider(sessionStore: DirectSessionStore = DirectSessionStore()) throws {
         try sessionStore.remove(provider: selectedModule.providerID)
-        sessionRevision += 1
+        discardModuleCache(selectedModule.providerID)
     }
 
     func providerFactory(connectionStore: ConnectionStore = ConnectionStore()) -> (any ProviderFactory)? {
@@ -118,5 +151,36 @@ final class AppModel {
         case .direct:
             return DirectProviderFactory(registry: directProviders)
         }
+    }
+}
+
+enum ModuleContentStore {
+    private(set) static var revision = 0
+    private static var blocked: Set<String> = []
+    static func isBlocked(_ name: String) -> Bool { blocked.contains(name) }
+    static func block(_ name: String) { blocked.insert(name); remove(name) }
+    static func unblock(_ name: String) { blocked.remove(name) }
+    private static var directory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("OpenHomeCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }
+
+    static func load<T: Decodable>(_ name: String, as type: T.Type) -> T? {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
+    static func save<T: Encodable>(_ name: String, _ value: T) {
+        let seen = revision
+        guard !blocked.contains(name) else { return }
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        guard seen == revision, !blocked.contains(name) else { return }
+        try? data.write(to: directory.appendingPathComponent(name), options: .atomic)
+    }
+
+    static func remove(_ name: String) {
+        revision += 1
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
     }
 }
