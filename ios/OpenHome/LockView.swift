@@ -94,9 +94,8 @@ struct LockView: View {
             if let detail = model.detail {
                 List {
                     Section {
-                        infoRow("Wi-Fi", detail.wifiName ?? "未知")
+                        infoRow("所连 Wi-Fi", wifiSummary(detail))
                         infoRow("信号", signalQuality(detail.wifiSignal), tone: statusTone(signalQuality(detail.wifiSignal)))
-                        infoRow("更新时间", detail.batteryUpdatedAt.map { displayTime($0) } ?? "未知")
                         batteryRow("门锁电量", detail.battery)
                         batteryRow("猫眼电量", detail.cameraBattery)
                     } header: {
@@ -188,27 +187,15 @@ struct LockView: View {
             }
         }
     }
+    private func wifiSummary(_ detail: LockDetail) -> String {
+        let name = detail.wifiName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let network = name.flatMap { $0.isEmpty ? nil : $0 } ?? "未知"
+        guard let updatedAt = detail.batteryUpdatedAt else { return network }
+        return "\(network) · \(displayTime(updatedAt)) 更新"
+    }
     private static func isCancellation(_ value: String) -> Bool {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return text == "canceled" || text == "cancelled"
-    }
-    private var passwordCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "key.fill").frame(width: 42, height: 42).background(Color.openHomeLock.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
-            VStack(alignment: .leading, spacing: 3) { Text("一次性临时密码").font(.caption).foregroundStyle(.secondary); if let value = model.temporaryPassword { Text(value.password).font(.system(.title3, design: .monospaced, weight: .semibold)).tracking(2); Text("有效至 \(value.expiresAt.formatted(date: .omitted, time: .shortened)) · 已复制").font(.caption2).foregroundStyle(.secondary) } else { Text("30 分钟内有效").font(.subheadline.weight(.medium)) } }
-            Spacer(); Button(model.temporaryPassword == nil ? "查看密码" : "重新生成") { Task { await model.createPassword() } }.buttonStyle(.borderedProminent).disabled(model.isCreatingPassword)
-        }
-    }
-    private var recordsCard: some View {
-        VStack(spacing: 12) { Picker("内容", selection: $page) { ForEach(Page.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented); if page == .security { securityRecords } else { captureGrid }; if let message = model.message { Text(message).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) } }
-    }
-    private var securityRecords: some View {
-        VStack(spacing: 10) {
-            Picker("记录", selection: $recordKind) { ForEach(LockViewModel.RecordKind.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
-            let records = model.records(recordKind)
-            if records.isEmpty { ContentUnavailableView("暂无记录", systemImage: "list.bullet", description: Text("新的门锁记录会出现在这里")).frame(minHeight: 160) } else { ForEach(records) { event in eventRow(event) } }
-            if let cursor = model.cursors[recordKind] { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: "\(recordKind.id)|\(cursor)") { await model.loadMore(recordKind) } }
-        }
     }
     private func eventRow(_ event: LockEvent) -> some View {
         Button { if let image = event.image { viewer = .image(image) } } label: {

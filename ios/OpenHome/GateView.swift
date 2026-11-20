@@ -72,57 +72,17 @@ final class GateViewModel {
         notify("密码已复制")
     }
 
-    func setSelected(_ resource: GateResource, selected: Bool) async {
-        guard busyID == nil, resource.selected != selected else { return }
-        busyID = resource.id; defer { busyID = nil }
-        do {
-            try await provider.setSelected(resourceID: resource.id, selected: selected)
-            resources = try await provider.resources()
-            ModuleContentStore.save("gate-resources.json", resources)
-            notify(selected ? "已加入常用门禁" : "已移出常用门禁")
-        } catch is CancellationError { return }
-        catch let error as URLError where error.code == .cancelled { return }
-        catch { notify(error.localizedDescription) }
-    }
-
-    func moveFavorite(_ draggedID: String, before targetID: String?, community: String) async {
-        guard let resource = resources.first(where: { $0.id == draggedID }), !resource.staysPut, resource.communityTitle == community else { return }
-        var ids = resources.filter { $0.communityTitle == community && $0.selected && !$0.staysPut }.map(\.id)
-        let inserting = !ids.contains(draggedID)
-        ids.removeAll { $0 == draggedID }
-        if let targetID, let index = ids.firstIndex(of: targetID) { ids.insert(draggedID, at: index) }
-        else { ids.append(draggedID) }
-        if inserting {
-            while ids.count > 2, let index = ids.firstIndex(where: { $0 != draggedID }) { ids.remove(at: index) }
-        }
-        await replaceFavorites(in: community, ids: ids)
-    }
-
     func removeFavorite(_ draggedID: String, community: String) async {
         guard resources.contains(where: { $0.id == draggedID && $0.selected && !$0.staysPut && $0.communityTitle == community }) else { return }
         await replaceFavorites(in: community, ids: resources.filter { $0.communityTitle == community && $0.selected && !$0.staysPut && $0.id != draggedID }.map(\.id))
-    }
-
-    func reorderFavorites(in community: String, from source: IndexSet, to destination: Int) async {
-        var ids = resources.filter { $0.communityTitle == community && $0.selected && !$0.staysPut }.map(\.id)
-        guard source.allSatisfy({ ids.indices.contains($0) }) else { return }
-        ids.move(fromOffsets: source, toOffset: destination)
-        await replaceFavorites(in: community, ids: ids)
-    }
-
-    func deleteFavorites(in community: String, at offsets: IndexSet) async {
-        var ids = resources.filter { $0.communityTitle == community && $0.selected && !$0.staysPut }.map(\.id)
-        ids.remove(atOffsets: offsets)
-        await replaceFavorites(in: community, ids: ids)
     }
 
     func addFavorite(_ id: String, community: String) async {
         guard let resource = resources.first(where: { $0.id == id }), !resource.staysPut, resource.communityTitle == community else { return }
         var ids = resources.filter { $0.communityTitle == community && $0.selected && !$0.staysPut }.map(\.id)
         guard !ids.contains(id) else { return }
-        let capacity = max(ids.count, 1)
         ids.append(id)
-        while ids.count > capacity { ids.removeFirst() }
+        while ids.count > 2 { ids.removeFirst() }
         await replaceFavorites(in: community, ids: ids)
     }
 
@@ -216,7 +176,7 @@ struct GateView: View {
                                 HStack(alignment: .firstTextBaseline) {
                                     Text(group.name).font(.title3.weight(.semibold)).foregroundStyle(.primary)
                                     Spacer()
-                                    Button("管理") { managingCommunity = group.name }.font(.body)
+                                    Button("全部") { managingCommunity = group.name }.font(.body)
                                 }
                                 .padding(.horizontal, 4)
                                 VStack(spacing: 0) {
@@ -309,29 +269,6 @@ struct GateView: View {
         }
     }
 
-    private func gateCard(_ resource: GateResource) -> some View {
-        Button { Task { await model.open(resource) } } label: {
-            VStack(alignment: .leading, spacing: 15) {
-                Image(systemName: "lock.open").frame(width: 42, height: 42).background(Color.openHomeGate, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white)
-                Text(resource.name).font(.title3.weight(.semibold)).lineLimit(2)
-            }.frame(maxWidth: .infinity, minHeight: 112, alignment: .leading).padding(14).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 18))
-        }.buttonStyle(.plain).disabled(model.busyID != nil)
-    }
-
-    private func passwordCard(_ resource: GateResource) -> some View {
-        HStack(spacing: 10) {
-            Button { Task { await model.open(resource) } } label: {
-                HStack(spacing: 12) { Image(systemName: "lock.open").frame(width: 42, height: 42).background(Color.openHomeGate, in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.white); Text(resource.name).font(.title3.weight(.semibold)).lineLimit(2) }
-                    .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading).layoutPriority(1)
-            }.buttonStyle(.plain)
-            Button { Task { await model.showPassword(resource) } } label: {
-                if let value = model.passwords[resource.id] {
-                    VStack(spacing: 3) { Text(value.password).font(.system(.title3, design: .monospaced).weight(.bold)).tracking(2); Text(value.validUntil, style: .timer).font(.caption2.monospacedDigit()) }
-                } else { VStack(spacing: 4) { Image(systemName: "key"); Text("查看密码").font(.caption.bold()) } }
-            }.frame(width: 108).frame(minHeight: 76).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 14)).buttonStyle(.plain)
-        }.padding(10).background(Color.openHomeSurface, in: RoundedRectangle(cornerRadius: 18)).disabled(model.busyID != nil)
-    }
-
     private func grouped(_ resources: [GateResource]) -> [(name: String, items: [GateResource])] {
         var groups: [(name: String, items: [GateResource])] = []
         for resource in resources {
@@ -356,28 +293,13 @@ private struct GateManagementView: View {
     var body: some View {
         NavigationStack {
             List {
-                if !fixedDoors.isEmpty {
-                    Section("单元门") {
-                        ForEach(fixedDoors) { resource in managementRow(resource) }
-                    }
-                }
-                Section("常用") {
-                    if favorites.isEmpty { Text("暂无常用").foregroundStyle(.secondary) }
-                    ForEach(favorites) { resource in managementRow(resource) }
-                        .onMove { source, destination in Task { await model.reorderFavorites(in: community, from: source, to: destination) } }
-                        .onDelete { offsets in Task { await model.deleteFavorites(in: community, at: offsets) } }
-                }
-                Section("大门") {
-                    if movableDoors.isEmpty { Text("暂无大门").foregroundStyle(.secondary) }
-                    ForEach(movableDoors) { resource in
-                        managementRow(resource, add: true)
-                    }
+                Section(community) {
+                    ForEach(allDoors) { resource in managementRow(resource) }
                 }
             }
-            .environment(\.editMode, .constant(.active))
             .environment(\.defaultMinListRowHeight, 52)
             .overlay(alignment: .bottom) { if let message = model.message { Text(message).font(.footnote.weight(.medium)).foregroundStyle(gateNoticeTone(message)).padding(.horizontal, 14).padding(.vertical, 10).background(.ultraThinMaterial, in: Capsule()).padding(.bottom, 16) } }
-            .navigationTitle(community)
+            .navigationTitle("全部门禁")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
@@ -385,22 +307,39 @@ private struct GateManagementView: View {
     }
 
     private var scoped: [GateResource] { model.resources.filter { $0.communityTitle == community } }
-    private var favorites: [GateResource] { scoped.filter { $0.selected && !$0.staysPut } }
-    private var movableDoors: [GateResource] { scoped.filter { !$0.selected && !$0.staysPut } }
-    private var fixedDoors: [GateResource] { scoped.filter(\.staysPut) }
+    private var allDoors: [GateResource] {
+        scoped.enumerated().sorted { left, right in
+            if left.element.staysPut != right.element.staysPut { return left.element.staysPut }
+            if left.element.selected != right.element.selected { return left.element.selected }
+            return left.offset < right.offset
+        }.map(\.element)
+    }
 
-    private func managementRow(_ resource: GateResource, add: Bool = false) -> some View {
+    private func managementRow(_ resource: GateResource) -> some View {
         HStack(spacing: 12) {
-            Text(resource.name).font(.body).lineLimit(2)
-            Spacer(minLength: 8)
-            if model.busyID == resource.id || model.busyID == "reorder" { ProgressView().controlSize(.small) }
-            if add {
-                Button { Task { await model.addFavorite(resource.id, community: community) } } label: {
-                    Image(systemName: "plus.circle").font(.title3)
+            Button { Task { await model.open(resource) } } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: resource.staysPut ? "building.2" : "door.left.hand.open")
+                        .foregroundStyle(.secondary).frame(width: 28)
+                    Text(resource.name).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                    Spacer(minLength: 8)
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("加入常用")
             }
+            .buttonStyle(.plain)
+            if model.busyID == resource.id || model.busyID == "reorder" { ProgressView().controlSize(.small) }
+            Button {
+                Task {
+                    if resource.selected { await model.removeFavorite(resource.id, community: community) }
+                    else { await model.addFavorite(resource.id, community: community) }
+                }
+            } label: {
+                Image(systemName: resource.selected || resource.staysPut ? "star.fill" : "star")
+                    .font(.title3).foregroundStyle(resource.selected || resource.staysPut ? Color.openHomeGate : .secondary)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.borderless)
+            .disabled(resource.staysPut || model.busyID != nil)
+            .accessibilityLabel(resource.staysPut ? "常驻门禁" : resource.selected ? "取消常用" : "加入常用")
         }
     }
 }

@@ -154,7 +154,7 @@ struct RemoteGateProvider: GateProvider {
             if projected != ids {
                 for id in ids { try await setSelected(resourceID: id, selected: false) }
                 for id in ids { try await setSelected(resourceID: id, selected: true) }
-            } }
+            }
         }
     }
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult {

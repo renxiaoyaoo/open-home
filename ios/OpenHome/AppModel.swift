@@ -176,7 +176,8 @@ enum ModuleContentStore {
         guard !blocked.contains(name) else { return }
         guard let data = try? JSONEncoder().encode(value) else { return }
         guard seen == revision, !blocked.contains(name) else { return }
-        try? data.write(to: directory.appendingPathComponent(name), options: .atomic)
+        let url = directory.appendingPathComponent(name)
+        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     static func remove(_ name: String) {
