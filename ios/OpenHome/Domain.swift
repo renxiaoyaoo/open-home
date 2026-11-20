@@ -25,6 +25,7 @@ struct GateResource: Codable, Sendable, Identifiable, Equatable {
     let communityName: String?
     let passwordSupported: Bool
     let providerFeatured: Bool
+    let pinned: Bool?
     let selected: Bool
     let refreshedAt: Int64
 }
@@ -41,8 +42,7 @@ struct OperationResult: Codable, Sendable, Equatable {
 
 protocol GateProvider: Sendable {
     func resources() async throws -> [GateResource]
-    func setSelected(resourceID: String, selected: Bool) async throws
-    func setOrder(ids: [String], previousIDs: [String]) async throws
+    func setSelected(resourceID: String, selected: Bool) async throws -> [GateResource]
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult
     func password(resourceID: String) async throws -> GatePassword
 }

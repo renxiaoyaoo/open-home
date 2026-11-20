@@ -190,10 +190,10 @@ export function communityIds(payload: unknown): number[] {
 }
 
 function passwordModels() { return new Set(providerBundle().access.passwordModels || []); }
-export type Door = { doorControlId: number; communityId: number; name: string; communityName?: string; communityCode?: string; mac?: string; deviceModel?: string; passwordSupported?: boolean; providerFeatured?: boolean; providerOrder?: number };
+export type Door = { doorControlId: number; communityId: number; name: string; communityName?: string; communityCode?: string; mac?: string; deviceModel?: string; passwordSupported?: boolean; providerFeatured?: boolean; providerPinned?: boolean; providerOrder?: number };
 
 type DoorSortCategory = "gate" | "building" | "custom";
-type DoorSortState = {
+export type DoorSortState = {
   common: number[];
   gate: number[];
   building: number[];

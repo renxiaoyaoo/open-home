@@ -9,7 +9,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ doorK
     const body = await request.json() as { selected?: unknown };
     const doorKey = (await context.params).doorKey;
     if (typeof body.selected !== "boolean") throw new Error("选择状态无效");
-    await setProviderDoorSelected(doorKey, body.selected);
-    return NextResponse.json({ ok: true, data: { selected: body.selected } });
+    const verified = await setProviderDoorSelected(doorKey, body.selected);
+    return NextResponse.json({ ok: true, data: verified.doors });
   } catch (error) { return jsonError(error); }
 }

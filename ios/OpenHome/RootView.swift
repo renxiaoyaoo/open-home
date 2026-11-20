@@ -32,8 +32,8 @@ struct RootView: View {
                     ForEach(model.enabledModules) { module in
                         NavigationStack {
                             connectedContent(module)
-                                .navigationTitle(module.subtitle)
-                                .navigationBarTitleDisplayMode(.large)
+                                .navigationTitle("")
+                                .navigationBarTitleDisplayMode(.inline)
                                 .toolbar { moduleToolbar }
                         }
                         .tabItem { Label(module.tabTitle, systemImage: module.symbol) }

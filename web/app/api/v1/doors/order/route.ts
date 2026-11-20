@@ -9,8 +9,8 @@ export async function PUT(request: Request) {
     const body = await request.json() as { ids?: unknown; previousIds?: unknown };
     const ids = stringList(body.ids);
     const previousIds = stringList(body.previousIds ?? []);
-    await setProviderDoorOrder(ids, previousIds);
-    return NextResponse.json({ ok: true, data: { ids } });
+    const verified = await setProviderDoorOrder(ids, previousIds);
+    return NextResponse.json({ ok: true, data: verified.doors });
   } catch (error) { return jsonError(error); }
 }
 

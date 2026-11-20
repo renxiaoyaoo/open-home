@@ -409,9 +409,9 @@ test("builds the exact open-door payload and rejects invalid ids", () => {
 });
 
 test("projects an opaque public door without account or upstream identifiers", () => {
-  const value = publicDoor({ publicId: "00000000-0000-4000-8000-000000000001", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, selected: true, refreshedAt: 1 });
-  assert.deepEqual(value, { id: "00000000-0000-4000-8000-000000000001", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, selected: true, refreshedAt: 1 });
-  assert.deepEqual(Object.keys(value || {}).sort(), ["communityName", "id", "name", "passwordSupported", "providerFeatured", "refreshedAt", "selected"]);
+  const value = publicDoor({ publicId: "00000000-0000-4000-8000-000000000001", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, pinned: true, selected: true, refreshedAt: 1 });
+  assert.deepEqual(value, { id: "00000000-0000-4000-8000-000000000001", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, pinned: true, selected: true, refreshedAt: 1 });
+  assert.deepEqual(Object.keys(value || {}).sort(), ["communityName", "id", "name", "passwordSupported", "pinned", "providerFeatured", "refreshedAt", "selected"]);
 });
 
 test("extracts a bounded account username from personal info", () => {

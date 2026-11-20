@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, KeyRound, List, LoaderCircle, LockKeyholeOpen, LogOut, Plus, RefreshCw, Smartphone, Star, X } from "lucide-react";
 import { useFeatureActivation } from "./use-feature-activation";
 
-type Door = { id: string; name: string; communityName?: string | null; passwordSupported?: boolean; providerFeatured: boolean; selected: boolean; refreshedAt: number };
+type Door = { id: string; name: string; communityName?: string | null; passwordSupported?: boolean; providerFeatured: boolean; pinned?: boolean; selected: boolean; refreshedAt: number };
 type Account = { id: string; username: string };
 type DoorPassword = { value: string; validUntil: number };
 type Toast = { text: string; kind: "success" | "error" | "info" };
@@ -135,28 +135,32 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
 
   async function openDoor(door: Door) {
     if (openingRef.current) return;
+    const playSuccess = prepareUnlockFeedback();
     openingRef.current = true; setBusy(door.id);
     try {
       const result = await request(`/api/v1/doors/${door.id}/open`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } });
+      playSuccess();
+      navigator.vibrate?.([45, 35, 70]);
       notify(result.message || `${door.name} 已开门`, "success");
     } catch (error) {
+      navigator.vibrate?.([90, 45, 90]);
       if (error instanceof Error && "status" in error && error.status === 401) notify("账号需要重新登录", "error");
       else notify(error instanceof Error ? error.message : "开门失败", "error");
     } finally { openingRef.current = false; setBusy(null); }
   }
 
   function toggleDoor(door: Door) {
-    if (savingDoorIdsRef.current.has(door.id)) return;
+    if (door.pinned || savingDoorIdsRef.current.has(door.id)) return;
     const selected = !door.selected;
     savingDoorIdsRef.current.add(door.id);
     setSavingDoorIds((items) => new Set(items).add(door.id));
-    setDoors((items) => items.map((item) => item.id === door.id ? { ...item, selected } : item));
 
     const save = async () => {
       try {
-        await request(`/api/v1/doors/${door.id}`, { method: "PATCH", body: JSON.stringify({ selected }) });
+        const result = await request<Door[]>(`/api/v1/doors/${door.id}`, { method: "PATCH", body: JSON.stringify({ selected }) });
+        setDoors(result.data || []);
+        notify(selected ? "已加入常用门禁" : "已移出常用门禁", "success");
       } catch (error) {
-        setDoors((items) => items.map((item) => item.id === door.id ? { ...item, selected: !selected } : item));
         if (error instanceof Error && "status" in error && error.status === 401) notify("账号需要重新登录", "error");
         else notify(error instanceof Error ? error.message : "保存失败", "error");
       } finally {
@@ -199,7 +203,7 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
 
   return (
     <main className="min-h-screen bg-[#f7f6f2] px-4 py-6 text-[#2d2d2a] sm:py-10">
-      {toast && <div role="status" className={`app-toast ${toast.kind === "error" ? "border-[#e7b8aa] text-[#9b4d38]" : "border-[#dfc5b9] text-[#7d4938]"}`}>{toast.text}</div>}
+      {toast && <div role="status" className={`app-toast flex items-center gap-2 ${toast.kind === "error" ? "border-[#a84935] bg-[#a84935] text-white" : toast.kind === "success" ? "border-[#4f765d] bg-[#4f765d] text-white" : "border-[#dfc5b9] text-[#7d4938]"}`}>{toast.kind === "success" && <LockKeyholeOpen size={17} />}{toast.text}</div>}
 
       <section className="mx-auto w-full max-w-[520px]">
         {!initialized ? <div className="grid h-64 place-items-center"><LoaderCircle className="animate-spin text-[#526277]" size={26} /></div> : !loggedIn || showLogin ? (
@@ -230,7 +234,7 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
                       <strong className={`block truncate font-semibold leading-tight tracking-[-.02em] ${door.passwordSupported && !manageDoors ? "text-[24px]" : "text-[20px]"}`}>{door.name}</strong>
                     </span>
                   </button>
-                  {manageDoors && <button aria-label={door.selected ? `移出常用 ${door.name}` : `加入常用 ${door.name}`} onClick={() => toggleDoor(door)} disabled={savingDoorIds.has(door.id)} className="absolute right-2 top-2 grid h-10 w-10 place-items-center rounded-full bg-[#fbfaf7] text-[#9a654f]">{door.selected ? <Star size={18} fill="currentColor" /> : <Star size={18} />}</button>}
+                  {manageDoors && <button aria-label={door.pinned ? `常驻门禁 ${door.name}` : door.selected ? `移出常用 ${door.name}` : `加入常用 ${door.name}`} onClick={() => toggleDoor(door)} disabled={door.pinned || savingDoorIds.has(door.id)} className="absolute right-2 top-2 grid h-10 w-10 place-items-center rounded-full bg-[#fbfaf7] text-[#9a654f] disabled:opacity-55">{door.selected || door.pinned ? <Star size={18} fill="currentColor" /> : <Star size={18} />}</button>}
                   {!manageDoors && door.passwordSupported && <button aria-label={`${door.name}开门密码`} onClick={() => showPassword(door)} disabled={busy !== null} className="m-2.5 flex w-[132px] shrink-0 flex-col items-center justify-center rounded-[14px] border border-[#d9d3ca] bg-[#fbfaf7] px-2 text-[#9a5a45] tabular-nums disabled:opacity-40">{busy === `password:${door.id}` ? <LoaderCircle className="animate-spin" size={18} /> : passwords[door.id] ? <><span className="flex items-center gap-1.5"><Copy size={14} /><strong className="font-mono text-[21px] tracking-[.12em]">{passwords[door.id].value}</strong></span><span className="mt-1.5 font-mono text-[11px] text-[#77736b]">剩余 {passwordLabel(door.id).split(/\s+/).at(-1)}</span></> : <><KeyRound size={18} /><span className="mt-1.5 text-xs font-semibold">查看密码</span></>}</button>}
                 </article>
               ))}</div></section>)}</div>}
@@ -242,4 +246,26 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
       {logoutTarget && <div className="fixed inset-0 z-40 grid place-items-center bg-[#2d2d2a]/35 p-5 backdrop-blur-sm" onMouseDown={(event) => { if (event.currentTarget === event.target) setLogoutTarget(null); }}><section role="dialog" aria-modal="true" aria-labelledby="logout-title" className="w-full max-w-[340px] rounded-[18px] border border-[#dedbd3] bg-[#fbfaf7] p-5 shadow-[0_24px_70px_rgba(45,45,42,.16)]"><div className="flex items-start justify-between"><h2 id="logout-title" className="font-display mt-1 text-[22px] font-medium tracking-[-.03em]">退出账号？</h2><button onClick={() => setLogoutTarget(null)} aria-label="取消退出" className="grid h-9 w-9 place-items-center rounded-[9px] bg-[#eeeae3] text-[#77736b]"><X size={18} /></button></div><p className="mt-3 truncate text-sm text-[#77736b]">{logoutTarget.username}</p><div className="mt-6 grid grid-cols-2 gap-2.5"><button onClick={() => setLogoutTarget(null)} className="h-12 rounded-[10px] bg-[#eeeae3] text-sm font-medium text-[#56534d]">取消</button><button onClick={() => logoutAccount(logoutTarget)} disabled={busy !== null} className="h-12 rounded-[10px] bg-[#d97757] text-sm font-semibold text-white disabled:opacity-50">{busy === `logout:${logoutTarget.id}` ? <LoaderCircle className="mx-auto animate-spin" size={18} /> : "确认退出"}</button></div></section></div>}
     </main>
   );
+}
+
+function prepareUnlockFeedback() {
+  if (typeof AudioContext === "undefined") return () => undefined;
+  const context = new AudioContext();
+  void context.resume();
+  return () => {
+    const now = context.currentTime;
+    for (const [frequency, offset] of [[660, 0], [880, 0.09]] as const) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = frequency;
+      oscillator.type = "sine";
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.14, now + offset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.12);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(now + offset);
+      oscillator.stop(now + offset + 0.13);
+    }
+    window.setTimeout(() => void context.close(), 350);
+  };
 }

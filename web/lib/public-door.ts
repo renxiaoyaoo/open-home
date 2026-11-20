@@ -4,6 +4,7 @@ export type PublicDoor = {
   communityName: string | null;
   passwordSupported: boolean;
   providerFeatured: boolean;
+  pinned: boolean;
   selected: boolean;
   refreshedAt: number;
 };
@@ -14,8 +15,9 @@ export function publicDoor(row: {
   communityName: string | null;
   passwordSupported: boolean;
   providerFeatured: boolean;
+  pinned: boolean;
   selected: boolean;
   refreshedAt: number;
 }): PublicDoor {
-  return { id: row.publicId, name: row.name, communityName: row.communityName, passwordSupported: row.passwordSupported, providerFeatured: row.providerFeatured, selected: row.selected, refreshedAt: row.refreshedAt };
+  return { id: row.publicId, name: row.name, communityName: row.communityName, passwordSupported: row.passwordSupported, providerFeatured: row.providerFeatured, pinned: row.pinned, selected: row.selected, refreshedAt: row.refreshedAt };
 }

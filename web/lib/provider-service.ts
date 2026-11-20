@@ -36,11 +36,13 @@ export async function centralDoors(accountId: string) {
       // Fall through to the already verified home-list endpoint below.
     }
     if (all && isSuccess(all)) {
-      let commonOrder: Map<number, number> | null = null;
-      try { commonOrder = new Map(doorSortState(all.data).common.map((id, index) => [id, index])); } catch { commonOrder = null; }
+      let sortState: ReturnType<typeof doorSortState> | null = null;
+      try { sortState = doorSortState(all.data); } catch { sortState = null; }
+      const commonOrder = sortState ? new Map(sortState.common.map((id, index) => [id, index])) : null;
       doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId), names.get(communityId)).map((door) => ({
         ...door,
         providerFeatured: commonOrder ? commonOrder.has(door.doorControlId) : featuredIds.has(`${door.communityId}:${door.doorControlId}`),
+        providerPinned: Boolean(sortState && commonOrder?.has(door.doorControlId) && sortState.categories.get(door.doorControlId) === "building"),
         providerOrder: commonOrder ? commonOrder.get(door.doorControlId) : featuredOrder.get(`${door.communityId}:${door.doorControlId}`),
       })));
       continue;
@@ -50,7 +52,7 @@ export async function centralDoors(accountId: string) {
     // Preserve the previously verified home-list behavior when the complete
     // list endpoint is unavailable; resource lists are never cached locally.
     if (!home || !isSuccess(home)) throw new Error(upstreamMessage(home || {}, "门禁查询失败"));
-    doors.push(...featured.map((door, index) => ({ ...door, providerFeatured: true, providerOrder: index })));
+    doors.push(...featured.map((door, index) => ({ ...door, providerFeatured: true, providerPinned: false, providerOrder: index })));
   }
   const result = dedupeDoors(doors); await persistCentralSession(accountId, session); return result;
 }

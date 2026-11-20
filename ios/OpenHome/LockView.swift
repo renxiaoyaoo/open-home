@@ -94,8 +94,9 @@ struct LockView: View {
             if let detail = model.detail {
                 List {
                     Section {
-                        infoRow("所连 Wi-Fi", wifiSummary(detail))
+                        infoRow("Wi-Fi", detail.wifiName ?? "未知")
                         infoRow("信号", signalQuality(detail.wifiSignal), tone: statusTone(signalQuality(detail.wifiSignal)))
+                        infoRow("更新时间", detail.batteryUpdatedAt.map { displayTime($0) } ?? "未知")
                         batteryRow("门锁电量", detail.battery)
                         batteryRow("猫眼电量", detail.cameraBattery)
                     } header: {
@@ -186,12 +187,6 @@ struct LockView: View {
                 Text("—").foregroundStyle(.secondary)
             }
         }
-    }
-    private func wifiSummary(_ detail: LockDetail) -> String {
-        let name = detail.wifiName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let network = name.flatMap { $0.isEmpty ? nil : $0 } ?? "未知"
-        guard let updatedAt = detail.batteryUpdatedAt else { return network }
-        return "\(network) · \(displayTime(updatedAt)) 更新"
     }
     private static func isCancellation(_ value: String) -> Bool {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

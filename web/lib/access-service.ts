@@ -17,7 +17,7 @@ export async function refreshPublicDoors() {
   const refreshedAt = Date.now();
   const doors = results.flatMap((result) => result.status === "fulfilled" ? result.value.doors.map((door) => ({ value: publicDoor({
     publicId: createDoorHandle(result.value.accountId, door), name: door.name, communityName: door.communityName ?? null,
-    passwordSupported: Boolean(door.passwordSupported), providerFeatured: Boolean(door.providerFeatured), selected: Boolean(door.providerFeatured), refreshedAt,
+    passwordSupported: Boolean(door.passwordSupported), providerFeatured: Boolean(door.providerFeatured), pinned: Boolean(door.providerPinned), selected: Boolean(door.providerFeatured), refreshedAt,
   }), providerOrder: door.providerOrder ?? Number.MAX_SAFE_INTEGER })) : [])
     .sort((left, right) => Number(right.value.selected) - Number(left.value.selected) || left.providerOrder - right.providerOrder || left.value.name.localeCompare(right.value.name, "zh-CN"))
     .map((item) => item.value);
@@ -61,6 +61,10 @@ export async function setProviderDoorSelected(publicId: string, selected: boolea
   const saved = await providerPost("mobile", accessRoute("sortItems"), body, { ...options, encoding: "json", signingExclude: ["list"] });
   if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
   await persistCentralSession(door.accountId, session);
+  const verified = await centralDoors(door.accountId);
+  const target = verified.find((item) => item.communityId === door.communityId && item.doorControlId === door.doorControlId);
+  if (!target || Boolean(target.providerFeatured) !== selected) throw new Error("厂商未确认常用门禁变更，请重试");
+  return refreshPublicDoors();
 }
 
 /** Save one community's commonly-used doors in a single sort so the order sticks. */
@@ -93,5 +97,11 @@ export async function setProviderDoorOrder(ids: string[], previousIds: string[] 
       if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
     }
     await persistCentralSession(accountId, session);
+    const verified = await centralDoors(accountId);
+    for (const group of list) {
+      const actual = verified.filter((door) => door.communityId === group.communityId && door.providerFeatured && !door.providerPinned).map((door) => door.doorControlId);
+      if (actual.length !== group.ids.length || actual.some((id) => !group.ids.includes(id))) throw new Error("厂商未确认常用门禁顺序，请重试");
+    }
   }
+  return refreshPublicDoors();
 }

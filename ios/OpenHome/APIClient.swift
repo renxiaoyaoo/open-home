@@ -131,31 +131,13 @@ struct RemoteLiveActivityRegistrar: LiveActivityRegistrar {
 
 struct RemoteGateProvider: GateProvider {
     let client: APIClient
-    private struct Selection: Decodable, Sendable { let selected: Bool }
-    private struct OrderBody: Encodable, Sendable { let ids: [String]; let previousIds: [String] }
-    private struct OrderResult: Decodable, Sendable { let ids: [String] }
     func resources() async throws -> [GateResource] {
         let response: Envelope<[GateResource]> = try await client.get("doors")
         return response.data
     }
-    func setSelected(resourceID: String, selected: Bool) async throws {
-        let _: Envelope<Selection> = try await client.send("doors/\(resourceID)", method: "PATCH", body: ["selected": selected])
-    }
-    func setOrder(ids: [String], previousIDs: [String]) async throws {
-        do {
-            let _: Envelope<OrderResult> = try await client.send("doors/order", method: "PUT", body: OrderBody(ids: ids, previousIds: previousIDs))
-        } catch let error as APIError {
-            guard case .server(let status, _) = error, status == 404 || status == 405 else { throw error }
-            let previous = Set(previousIDs)
-            let next = Set(ids)
-            for id in previousIDs where !next.contains(id) { try await setSelected(resourceID: id, selected: false) }
-            for id in ids where !previous.contains(id) { try await setSelected(resourceID: id, selected: true) }
-            let projected = previousIDs.filter { next.contains($0) } + ids.filter { !previous.contains($0) }
-            if projected != ids {
-                for id in ids { try await setSelected(resourceID: id, selected: false) }
-                for id in ids { try await setSelected(resourceID: id, selected: true) }
-            }
-        }
+    func setSelected(resourceID: String, selected: Bool) async throws -> [GateResource] {
+        let response: Envelope<[GateResource]> = try await client.send("doors/\(resourceID)", method: "PATCH", body: ["selected": selected])
+        return response.data
     }
     func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult {
         try await client.request("doors/\(resourceID)/open", method: "POST", headers: ["Idempotency-Key": idempotencyKey])
