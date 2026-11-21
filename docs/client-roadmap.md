@@ -1,6 +1,8 @@
 # OpenHome client roadmap
 
-This document records product direction, not current implementation status.
+This document records product direction and the prioritized remaining backlog.
+The backlog states known verification limits; broader direction does not imply
+that every described capability is missing from the implementation.
 OpenHome should have one client whose modules share navigation, security, and
 platform integrations. OpenGate is the access-control module inside that client,
 not a separate client product.
@@ -31,7 +33,7 @@ only its own per-device OpenHome credential, never the upstream credential.
 
 This mode supports multiple clients and centralized management of multiple
 accounts and all their access resources. Each activated client receives an
-independently revocable device token; finer module permissions remain future work.
+independently revocable device token.
 
 ### Use only on this device
 
@@ -111,23 +113,33 @@ Shortcuts. The main app owns authentication, resource selection, and settings.
 App Intents expose only user-selected resources to Control Center, Lock Screen,
 widgets, and shortcuts. Credentials stay in Keychain.
 
-## Delivery order
+## Prioritized remaining backlog
 
-1. Stabilize and document the OpenGate API.
-2. Define shared client models and `GateProvider`.
-3. Build the native iOS client using `RemoteOpenGateProvider`.
-4. Add App Intents, Control Center, Lock Screen, widgets, and shortcuts.
-5. Add per-device credentials, revocation, and permissions to OpenHome.
-6. Add `LocalGateProvider` using the existing compatible protocol adapter.
-7. Consider Android and distribution only after the core journeys are stable.
+Rows are in priority order. Task IDs remain stable; task 6 (finer device/module
+permissions) has been removed from this backlog. This is the single current
+priority list; implementation work requires its own applicable verification.
+
+| Priority | Task ID | Remaining work | Status and completion boundary |
+| --- | --- | --- | --- |
+| 1 | 2 | Verify the provider's maximum common-door count, including whether it is nine. | Unverified server policy; reference-client strings alone are insufficient. |
+| 2 | 3 | Verify automatic replacement selection and ordering after a common-door removal. | Replacement is observed; its choice and priority remain unknown. |
+| 3 | 4 | Verify common-door behavior for accounts with fewer than three authorized doors. | Untested; do not impose a universal minimum locally. |
+| 4 | 10 | Unify iOS UI/UX across modules and unify Web UI/UX across modules. | Review navigation, hierarchy, list layout, timestamps, loading, empty/error states, accessibility and operation feedback within each platform's shared design. |
+| 5 | 11 | Make door-opening feedback more prominent within the unified UX, with sound and haptics. | Assess existing feedback and complete gaps without creating a separate UX system. Give immediate tap/loading feedback, stronger confirmed-success feedback with sound and success haptics, and clear failure feedback with error haptics. Play success sound only after provider confirmation; retain duplicate-request protection. |
+| 6 | 12 | Improve system loading, API latency and state-refresh speed, especially at app launch and for OpenGate. | Measure the current path and verify improvements. Prioritize quickly available door controls, fast operations and immediate feedback; preserve authoritative state and avoid unnecessary caches. |
+| 7 | 8 | Complete iOS system entry points: App Intents, Control Center, Lock Screen, widgets and Shortcuts. | Some implementation exists; audit and complete missing user journeys with selected resources and secure credentials. |
+| 8 | 1 | Add vendor choice per module, multiple accounts per vendor and aggregated resources. | Not started; see the scope below. |
+| 9 | 5 | Validate Full signing, Push, remote Live Activities and release-signing capabilities. | Full compilation passes; paid-team signing and capability validation await a paid Apple Developer account. |
+| 10 | 7 | Complete native OpenLock live video through the provider's native media SDK. | Audit existing implementation and complete missing playback/lifecycle behavior; no Web video gateway. |
+| 11 | 9 | Complete on-device provider adapters for all four modules. | Shared provider interfaces and adapter installation support exist; audit and complete actual direct-mode adapters, authentication and operations per module. |
 
 The first usable release is: connect to OpenHome, show common access resources,
 perform one-tap access, display temporary codes, and expose selected resources
 through Control Center.
 
-## Todo: vendor choice per module
+## Task 1 scope: vendor choice per module
 
-Not started. Do not build this until it is explicitly scheduled.
+Not started. Follow the priority list above when scheduling implementation.
 
 The four modules (access, lock, living, and vehicle) need room for more than
 one upstream vendor:
