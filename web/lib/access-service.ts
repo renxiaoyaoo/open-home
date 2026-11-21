@@ -15,6 +15,7 @@ export async function refreshPublicDoors() {
   const results = await Promise.allSettled(accountIds.map(async (accountId) => ({ accountId, doors: await centralDoors(accountId) })));
   const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
   const expired = rejected.filter((result) => isAuthenticationExpired(result.reason));
+  if (accountIds.length > 0 && rejected.length === results.length) throw rejected[0].reason;
   const refreshedAt = Date.now();
   const doors = results.flatMap((result) => result.status === "fulfilled" ? result.value.doors.map((door) => ({ value: publicDoor({
     id: createDoorId(result.value.accountId, door), handle: createDoorHandle(result.value.accountId, door), name: door.name, communityName: door.communityName ?? null,

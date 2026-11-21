@@ -14,6 +14,7 @@ final class DryerViewModel {
     var isLoading = false
     var isOperating = false
     var message: String?
+    var lastUpdatedAt: Date?
     private let provider: any DryerProvider
     private let liveStatus: LiveStatusManager
     private var activityID: String?
@@ -39,7 +40,7 @@ final class DryerViewModel {
 
     init(provider: any DryerProvider, registrar: (any LiveActivityRegistrar)? = nil) {
         self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar)
-        if let cached = ModuleContentStore.load("dryer.json", as: DryerCache.self) { snapshot = cached.snapshot; programs = cached.programs }
+        if let cached = ModuleContentStore.load("dryer.json", as: DryerCache.self) { snapshot = cached.snapshot; programs = cached.programs; lastUpdatedAt = cached.updatedAt }
     }
 
     func discardDisplayedContent() { snapshot = nil; programs = []; message = nil }
@@ -55,10 +56,10 @@ final class DryerViewModel {
             let value = try await provider.snapshot()
             guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
             if value.programID != snapshot?.programID { programPresentation = nil }
-            snapshot = value; parameterValues = value.parameters; message = nil; await updateLiveStatus(value)
+            snapshot = value; parameterValues = value.parameters; message = nil; lastUpdatedAt = .now; await updateLiveStatus(value)
             if programs.isEmpty { programs = (try? await provider.programs()) ?? [] }
             guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
-            ModuleContentStore.save("dryer.json", DryerCache(snapshot: value, programs: programs))
+            ModuleContentStore.save("dryer.json", DryerCache(snapshot: value, programs: programs, updatedAt: lastUpdatedAt))
         } catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
         catch let error as APIError {
@@ -147,6 +148,7 @@ struct DryerView: View {
                                 .font(.title3.weight(.semibold)).monospacedDigit()
                         }
                         infoRow("程序", value.programName ?? "未选择程序")
+                        infoRow("更新时间", model.lastUpdatedAt.map(openHomeTimeText) ?? "未知")
                     } header: {
                         Text(value.name).font(.title3.weight(.semibold)).foregroundStyle(.primary).textCase(nil)
                     }
@@ -360,6 +362,6 @@ private struct DryerProgramSettingsView: View {
     @MainActor private func submit() async { isApplying = true; message = nil; let succeeded = await apply(selection); isApplying = false; if succeeded { dismiss() } else { message = "参数设置失败，请重试" } }
 }
 
-private struct DryerCache: Codable { var snapshot: DryerSnapshot; var programs: [DryerProgram] }
+private struct DryerCache: Codable { var snapshot: DryerSnapshot; var programs: [DryerProgram]; var updatedAt: Date? }
 extension DryerSnapshot.State { var label: String { switch self { case .off: "已关机"; case .idle: "待机"; case .running: "烘干中"; case .paused: "已暂停"; case .scheduled: "已预约"; case .finished: "已完成"; case .fault: "设备故障" } } }
 private extension Color { static let openHomeLiving = Color(red: 0.286, green: 0.420, blue: 0.443) }
