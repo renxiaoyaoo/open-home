@@ -38,6 +38,18 @@ export async function centralDoors(accountId: string) {
     if (all && isSuccess(all)) {
       let sortState: ReturnType<typeof doorSortState> | null = null;
       try { sortState = doorSortState(all.data); } catch { sortState = null; }
+      if (sortState) {
+        const homeIds = new Set(featured.map((door) => door.doorControlId));
+        const allDoors = normalizeDoors(all.data, communityId);
+        console.info("gate-selection-comparison", {
+          homeCount: homeIds.size, commonCount: sortState.common.length,
+          homeOnly: [...homeIds].filter((id) => !sortState.common.includes(id)).length,
+          commonOnly: sortState.common.filter((id) => !homeIds.has(id)).length,
+          allCount: allDoors.length,
+          homeHasDoorList: Boolean(home?.data && typeof home.data === "object" && "userDoorDTOS" in home.data),
+          homeHasCommonGroup: Boolean(home?.data && typeof home.data === "object" && "commonlyUsedDoor" in home.data),
+        });
+      }
       const commonOrder = sortState ? new Map(sortState.common.map((id, index) => [id, index])) : null;
       doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId), names.get(communityId)).map((door) => ({
         ...door,
