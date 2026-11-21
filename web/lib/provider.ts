@@ -282,39 +282,6 @@ export function doorSortBody(payload: unknown, communityId: number, doorControlI
   };
 }
 
-/**
- * Replace the homepage gate keys in one sort.
- * Unit and building doors already on the homepage stay at the front and are not
- * part of the replaceable slots. Gates that leave those slots return to the gate list.
- */
-export function doorSortOrderBody(payload: unknown, communityId: number, orderedIds: number[]): JsonMap {
-  if (!Number.isSafeInteger(communityId) || communityId <= 0) throw new UpstreamError("门禁参数无效");
-  if (orderedIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) throw new UpstreamError("门禁参数无效");
-  const state = doorSortState(payload);
-  const unique = orderedIds.filter((id, index) => orderedIds.indexOf(id) === index);
-  const missing = unique.find((id) => !state.categories.has(id));
-  if (missing) throw new UpstreamError("无法识别该门禁的官方分类");
-  const pinned = state.common.filter((id) => state.categories.get(id) === "building");
-  const gates = unique.filter((id) => state.categories.get(id) !== "building");
-  const wanted = [...pinned, ...gates];
-  const wantedSet = new Set(wanted);
-  const restore = (ids: number[], category: DoorSortCategory) => {
-    const kept = ids.filter((id) => !wantedSet.has(id));
-    for (const id of state.common) {
-      if (!wantedSet.has(id) && state.categories.get(id) === category && !kept.includes(id)) kept.push(id);
-    }
-    return kept;
-  };
-  return {
-    list: [{ commondoorControlIds: wanted, gatedoorControlIds: restore(state.gate, "gate"), buildingDoorList: restore(state.building, "building"), customDoorList: restore(state.custom, "custom") }],
-    method: "doorSort",
-    commId: communityId,
-    gateDoorColor: state.gateDoorColor,
-    buildingDoorColor: state.buildingDoorColor,
-    customDoorColor: state.customDoorColor,
-  };
-}
-
 export function communityCodes(payload: unknown): Map<number, string> {
   const found = new Map<number, string>();
   walk(payload, (item) => {

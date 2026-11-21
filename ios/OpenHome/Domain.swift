@@ -21,6 +21,7 @@ enum ProviderID: String, Codable, CaseIterable, Sendable {
 
 struct GateResource: Codable, Sendable, Identifiable, Equatable {
     let id: String
+    let handle: String
     let name: String
     let communityName: String?
     let passwordSupported: Bool
@@ -42,9 +43,9 @@ struct OperationResult: Codable, Sendable, Equatable {
 
 protocol GateProvider: Sendable {
     func resources() async throws -> [GateResource]
-    func setSelected(resourceID: String, selected: Bool) async throws -> [GateResource]
-    func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult
-    func password(resourceID: String) async throws -> GatePassword
+    func setSelected(resourceHandle: String, selected: Bool) async throws -> [GateResource]
+    func open(resourceHandle: String, idempotencyKey: String) async throws -> OperationResult
+    func password(resourceHandle: String) async throws -> GatePassword
 }
 
 protocol HomeProvider<Snapshot>: Sendable {

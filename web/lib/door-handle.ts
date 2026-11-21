@@ -1,10 +1,14 @@
 import type { Door } from "./provider.ts";
-import { openSession, sealSession } from "./session-crypto.ts";
+import { openSession, sealSession, stableOpaqueId } from "./session-crypto.ts";
 
 export type DoorHandle = Pick<Door, "communityId" | "doorControlId" | "communityCode" | "mac" | "deviceModel" | "passwordSupported"> & { accountId: string };
 
 export function createDoorHandle(accountId: string, door: Door) {
   return sealSession({ accountId, communityId: door.communityId, doorControlId: door.doorControlId, communityCode: door.communityCode, mac: door.mac, deviceModel: door.deviceModel, passwordSupported: door.passwordSupported } satisfies DoorHandle);
+}
+
+export function createDoorId(accountId: string, door: Pick<Door, "communityId" | "doorControlId">) {
+  return stableOpaqueId("door", [accountId, door.communityId, door.doorControlId]);
 }
 
 export function readDoorHandle(value: string): DoorHandle {

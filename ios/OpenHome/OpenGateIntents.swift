@@ -30,7 +30,9 @@ struct OpenGateIntent: AppIntent {
     @Parameter(title: "门禁", optionsProvider: OpenGateOptionsProvider()) var gateID: String
 
     func perform() async throws -> some IntentResult {
-        _ = try await OpenHomeIntentEnvironment.gateProvider().open(resourceID: gateID, idempotencyKey: UUID().uuidString)
+        let provider = try OpenHomeIntentEnvironment.gateProvider()
+        guard let gate = try await provider.resources().first(where: { $0.id == gateID }) else { throw OpenHomeIntentError.gateUnavailable }
+        _ = try await provider.open(resourceHandle: gate.handle, idempotencyKey: UUID().uuidString)
         return .result()
     }
 }
@@ -58,13 +60,14 @@ private enum OpenHomeIntentEnvironment {
 }
 
 private enum OpenHomeIntentError: LocalizedError {
-    case missingConnection, centerRequired, gateDisabled
+    case missingConnection, centerRequired, gateDisabled, gateUnavailable
 
     var errorDescription: String? {
         switch self {
         case .missingConnection: "快捷指令无法读取 OpenHome 连接配置"
         case .centerRequired: "请先在 OpenHome 中连接中心"
         case .gateDisabled: "请先在 OpenHome 中启用门禁模块"
+        case .gateUnavailable: "该门禁当前不可用，请重新选择"
         }
     }
 }

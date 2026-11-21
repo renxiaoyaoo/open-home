@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, KeyRound, List, LoaderCircle, LockKeyholeOpen, LogOut, Plus, RefreshCw, Smartphone, Star, X } from "lucide-react";
 import { useFeatureActivation } from "./use-feature-activation";
 
-type Door = { id: string; name: string; communityName?: string | null; passwordSupported?: boolean; providerFeatured: boolean; pinned?: boolean; selected: boolean; refreshedAt: number };
+type Door = { id: string; handle: string; name: string; communityName?: string | null; passwordSupported?: boolean; providerFeatured: boolean; pinned?: boolean; selected: boolean; refreshedAt: number };
 type Account = { id: string; username: string };
 type DoorPassword = { value: string; validUntil: number };
 type Toast = { text: string; kind: "success" | "error" | "info" };
@@ -138,7 +138,7 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
     const playSuccess = prepareUnlockFeedback();
     openingRef.current = true; setBusy(door.id);
     try {
-      const result = await request(`/api/v1/doors/${door.id}/open`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } });
+      const result = await request(`/api/v1/doors/${door.handle}/open`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } });
       playSuccess();
       navigator.vibrate?.([45, 35, 70]);
       notify(result.message || `${door.name} 已开门`, "success");
@@ -157,7 +157,7 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
 
     const save = async () => {
       try {
-        const result = await request<Door[]>(`/api/v1/doors/${door.id}`, { method: "PATCH", body: JSON.stringify({ selected }) });
+        const result = await request<Door[]>(`/api/v1/doors/${door.handle}`, { method: "PATCH", body: JSON.stringify({ selected }) });
         setDoors(result.data || []);
         notify(selected ? "已加入常用门禁" : "已移出常用门禁", "success");
       } catch (error) {
@@ -179,7 +179,7 @@ export function DoorApp({ activeByDefault = true }: { activeByDefault?: boolean 
   async function showPassword(door: Door) {
     setBusy(`password:${door.id}`);
     try {
-      const result = await request<{ password: string; validUntil: string }>(`/api/v1/doors/${door.id}/password`);
+      const result = await request<{ password: string; validUntil: string }>(`/api/v1/doors/${door.handle}/password`);
       if (!result.data?.password) throw new Error("获取密码失败");
       const next = { value: result.data.password, validUntil: Date.parse(result.data.validUntil) };
       setPasswords((value) => ({ ...value, [door.id]: next }));

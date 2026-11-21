@@ -29,12 +29,12 @@ paths:
     post: { summary: Connect or refresh an OpenGate account, parameters: [{ $ref: "#/components/parameters/accountHandle" }], requestBody: { $ref: "#/components/requestBodies/GateLogin" }, responses: { "200": { description: Connected } } }
   /doors:
     get: { summary: List current aggregated doors without a resource cache, responses: { "200": { description: Door list } } }
-  /doors/{doorKey}:
-    patch: { summary: Change provider-side common-door selection, parameters: [{ $ref: "#/components/parameters/doorKey" }], responses: { "200": { description: Updated } } }
-  /doors/{doorKey}/open:
-    post: { summary: Open a door, parameters: [{ $ref: "#/components/parameters/doorKey" }, { name: Idempotency-Key, in: header, required: false, schema: { type: string } }], responses: { "200": { description: Completed } } }
-  /doors/{doorKey}/password:
-    get: { summary: Get a temporary door code, parameters: [{ $ref: "#/components/parameters/doorKey" }], responses: { "200": { description: Temporary code } } }
+  /doors/{doorHandle}:
+    patch: { summary: Change provider-side common-door selection and return the verified final list, parameters: [{ $ref: "#/components/parameters/doorHandle" }], responses: { "200": { description: Verified door list } } }
+  /doors/{doorHandle}/open:
+    post: { summary: Open a door, parameters: [{ $ref: "#/components/parameters/doorHandle" }, { name: Idempotency-Key, in: header, required: false, schema: { type: string } }], responses: { "200": { description: Completed } } }
+  /doors/{doorHandle}/password:
+    get: { summary: Get a temporary door code, parameters: [{ $ref: "#/components/parameters/doorHandle" }], responses: { "200": { description: Temporary code } } }
   /dryer/sms:
     post: { summary: Request an OpenLiving login code, requestBody: { $ref: "#/components/requestBodies/SmsRequest" }, responses: { "200": { description: Accepted } } }
   /dryer/login:
@@ -100,7 +100,7 @@ components:
     administratorToken: { type: http, scheme: bearer, description: Deployment-owned administrator token used only to issue activation packages. }
   parameters:
     accountHandle: { name: accountHandle, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$" } }
-    doorKey: { name: doorKey, in: path, required: true, schema: { type: string, maxLength: 1024 } }
+    doorHandle: { name: doorHandle, in: path, required: true, description: Short-lived opaque action handle returned with the stable door id, schema: { type: string, maxLength: 1024 } }
     homeId: { name: homeId, in: query, required: true, schema: { type: string } }
     deviceId: { name: deviceId, in: query, required: true, schema: { type: string } }
     lockId: { name: lockId, in: query, required: true, schema: { type: string } }

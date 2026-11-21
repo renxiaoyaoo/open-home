@@ -1,7 +1,8 @@
 import { listActiveAccountIds, loadCentralSession, persistCentralSession } from "./central";
-import { createDoorHandle, readDoorHandle } from "./door-handle";
+import { createDoorHandle, createDoorId, readDoorHandle } from "./door-handle";
+import { verifyDoorSelection } from "./door-selection";
 import { centralDoors } from "./provider-service";
-import { doorPassword, doorSortBody, doorSortOrderBody, isAuthenticationExpired, isSuccess, openDoorBody, providerPost, upstreamMessage } from "./provider";
+import { doorPassword, doorSortBody, isAuthenticationExpired, isSuccess, openDoorBody, providerPost, upstreamMessage } from "./provider";
 import { accessRoute } from "./provider-bundle.ts";
 import { publicDoor } from "./public-door";
 
@@ -16,16 +17,15 @@ export async function refreshPublicDoors() {
   const expired = rejected.filter((result) => isAuthenticationExpired(result.reason));
   const refreshedAt = Date.now();
   const doors = results.flatMap((result) => result.status === "fulfilled" ? result.value.doors.map((door) => ({ value: publicDoor({
-    publicId: createDoorHandle(result.value.accountId, door), name: door.name, communityName: door.communityName ?? null,
+    id: createDoorId(result.value.accountId, door), handle: createDoorHandle(result.value.accountId, door), name: door.name, communityName: door.communityName ?? null,
     passwordSupported: Boolean(door.passwordSupported), providerFeatured: Boolean(door.providerFeatured), pinned: Boolean(door.providerPinned), selected: Boolean(door.providerFeatured), refreshedAt,
   }), providerOrder: door.providerOrder ?? Number.MAX_SAFE_INTEGER })) : [])
     .sort((left, right) => Number(right.value.selected) - Number(left.value.selected) || left.providerOrder - right.providerOrder || left.value.name.localeCompare(right.value.name, "zh-CN"))
     .map((item) => item.value);
   return { doors, accountCount: accountIds.length, failedAccountCount: rejected.length, expiredAccountCount: expired.length };
 }
-
-async function performOpen(publicId: string): Promise<OpenResult> {
-  const door = readDoorHandle(publicId);
+async function performOpen(handle: string): Promise<OpenResult> {
+  const door = readDoorHandle(handle);
   const session = await loadCentralSession(door.accountId);
   const payload = await providerPost("mobile", accessRoute("operate"), openDoorBody(door.doorControlId, door.communityId), { sessionId: session.sessionId, signingToken: session.signingToken, openId: session.openId, signing: "mobile-body", encoding: "query", context: session.context });
   await persistCentralSession(door.accountId, session);
@@ -33,26 +33,26 @@ async function performOpen(publicId: string): Promise<OpenResult> {
   return { ok, message: upstreamMessage(payload, ok ? "开门请求成功" : "开门失败") };
 }
 
-export async function openPublicDoor(publicId: string, idempotencyKey: string) {
-  if (!idempotencyKey) return performOpen(publicId);
+export async function openPublicDoor(handle: string, idempotencyKey: string) {
+  if (!idempotencyKey) return performOpen(handle);
   const now = Date.now();
   for (const [key, value] of openRequests) if (value.expiresAt <= now) openRequests.delete(key);
-  const key = `${publicId}:${idempotencyKey}`;
+  const key = `${handle}:${idempotencyKey}`;
   const previous = openRequests.get(key);
   if (previous) return { ...await previous.promise, replayed: true };
-  const promise = performOpen(publicId);
+  const promise = performOpen(handle);
   openRequests.set(key, { expiresAt: now + 30_000, promise });
   try { return await promise; } catch (error) { openRequests.delete(key); throw error; }
 }
 
-export async function publicDoorPassword(publicId: string) {
-  const door = readDoorHandle(publicId);
+export async function publicDoorPassword(handle: string) {
+  const door = readDoorHandle(handle);
   if (!door.passwordSupported) throw new Error("该设备不支持密码开门");
   return doorPassword(door.mac || "", door.communityCode || "");
 }
 
-export async function setProviderDoorSelected(publicId: string, selected: boolean) {
-  const door = readDoorHandle(publicId);
+export async function setProviderDoorSelected(handle: string, selected: boolean) {
+  const door = readDoorHandle(handle);
   const session = await loadCentralSession(door.accountId);
   const options = { sessionId: session.sessionId, signingToken: session.signingToken, openId: session.openId, signing: "mobile-body" as const, context: session.context };
   const all = await providerPost("mobile", accessRoute("allItems"), { communityId: door.communityId }, { ...options, encoding: "multipart" });
@@ -62,46 +62,6 @@ export async function setProviderDoorSelected(publicId: string, selected: boolea
   if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
   await persistCentralSession(door.accountId, session);
   const verified = await centralDoors(door.accountId);
-  const target = verified.find((item) => item.communityId === door.communityId && item.doorControlId === door.doorControlId);
-  if (!target || Boolean(target.providerFeatured) !== selected) throw new Error("厂商未确认常用门禁变更，请重试");
-  return refreshPublicDoors();
-}
-
-/** Save one community's commonly-used doors in a single sort so the order sticks. */
-export async function setProviderDoorOrder(ids: string[], previousIds: string[] = []) {
-  type Group = { accountId: string; communityId: number; ids: number[] };
-  const groups = new Map<string, Group>();
-  const ensure = (value: string) => {
-    const door = readDoorHandle(value);
-    const key = `${door.accountId}:${door.communityId}`;
-    const group = groups.get(key) ?? { accountId: door.accountId, communityId: door.communityId, ids: [] };
-    groups.set(key, group);
-    return group;
-  };
-  for (const id of previousIds) ensure(id);
-  for (const id of ids) {
-    const door = readDoorHandle(id);
-    const group = ensure(id);
-    if (!group.ids.includes(door.doorControlId)) group.ids.push(door.doorControlId);
-  }
-  const byAccount = new Map<string, Group[]>();
-  for (const group of groups.values()) byAccount.set(group.accountId, [...(byAccount.get(group.accountId) ?? []), group]);
-  for (const [accountId, list] of byAccount) {
-    const session = await loadCentralSession(accountId);
-    const options = { sessionId: session.sessionId, signingToken: session.signingToken, openId: session.openId, signing: "mobile-body" as const, context: session.context };
-    for (const group of list) {
-      const all = await providerPost("mobile", accessRoute("allItems"), { communityId: group.communityId }, { ...options, encoding: "multipart" });
-      if (!isSuccess(all)) throw new Error(upstreamMessage(all, "门禁查询失败"));
-      const body = doorSortOrderBody(all.data, group.communityId, group.ids);
-      const saved = await providerPost("mobile", accessRoute("sortItems"), body, { ...options, encoding: "json", signingExclude: ["list"] });
-      if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
-    }
-    await persistCentralSession(accountId, session);
-    const verified = await centralDoors(accountId);
-    for (const group of list) {
-      const actual = verified.filter((door) => door.communityId === group.communityId && door.providerFeatured && !door.providerPinned).map((door) => door.doorControlId);
-      if (actual.length !== group.ids.length || actual.some((id) => !group.ids.includes(id))) throw new Error("厂商未确认常用门禁顺序，请重试");
-    }
-  }
+  verifyDoorSelection(verified, door.communityId, door.doorControlId, selected);
   return refreshPublicDoors();
 }

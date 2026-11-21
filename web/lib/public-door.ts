@@ -1,5 +1,6 @@
 export type PublicDoor = {
   id: string;
+  handle: string;
   name: string;
   communityName: string | null;
   passwordSupported: boolean;
@@ -10,7 +11,8 @@ export type PublicDoor = {
 };
 
 export function publicDoor(row: {
-  publicId: string;
+  id: string;
+  handle: string;
   name: string;
   communityName: string | null;
   passwordSupported: boolean;
@@ -19,5 +21,5 @@ export function publicDoor(row: {
   selected: boolean;
   refreshedAt: number;
 }): PublicDoor {
-  return { id: row.publicId, name: row.name, communityName: row.communityName, passwordSupported: row.passwordSupported, providerFeatured: row.providerFeatured, pinned: row.pinned, selected: row.selected, refreshedAt: row.refreshedAt };
+  return { id: row.id, handle: row.handle, name: row.name, communityName: row.communityName, passwordSupported: row.passwordSupported, providerFeatured: row.providerFeatured, pinned: row.pinned, selected: row.selected, refreshedAt: row.refreshedAt };
 }

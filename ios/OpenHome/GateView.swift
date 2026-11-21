@@ -54,7 +54,7 @@ final class GateViewModel {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         busyID = resource.id; defer { busyID = nil }
         do {
-            let result = try await provider.open(resourceID: resource.id, idempotencyKey: UUID().uuidString)
+            let result = try await provider.open(resourceHandle: resource.handle, idempotencyKey: UUID().uuidString)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             AudioServicesPlaySystemSound(1104)
             notify(result.message.isEmpty ? "\(resource.name) 已开门" : result.message, kind: .success)
@@ -69,7 +69,7 @@ final class GateViewModel {
         guard busyID == nil else { return }
         busyID = resource.id; defer { busyID = nil }
         do {
-            let value = try await provider.password(resourceID: resource.id)
+            let value = try await provider.password(resourceHandle: resource.handle)
             passwords[resource.id] = value
             ShownGatePasswords.values[resource.id] = value
             copy(value.password)
@@ -88,7 +88,7 @@ final class GateViewModel {
         defer { busyID = nil }
         do {
             let revision = ModuleContentStore.revision
-            let value = try await provider.setSelected(resourceID: resource.id, selected: selected)
+            let value = try await provider.setSelected(resourceHandle: resource.handle, selected: selected)
             guard revision == ModuleContentStore.revision else { discardDisplayedContent(); return }
             resources = value
             ModuleContentStore.save("gate-resources.json", resources)
@@ -286,7 +286,7 @@ private struct GateManagementView: View {
                 }
             }
             .buttonStyle(.plain)
-            if model.busyID == resource.id || model.busyID == "reorder" { ProgressView().controlSize(.small) }
+            if model.busyID == resource.id { ProgressView().controlSize(.small) }
             Button {
                 Task {
                     await model.setFavorite(resource, selected: !resource.selected)

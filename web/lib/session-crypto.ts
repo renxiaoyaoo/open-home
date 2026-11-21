@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
 function encryptionKey() {
   const value = process.env.OPENHOME_SESSION_ENCRYPTION_KEY || "";
@@ -20,4 +20,9 @@ export function openSession<T>(value: string): T {
   const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(iv, "base64url"));
   decipher.setAuthTag(Buffer.from(tag, "base64url"));
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(ciphertext, "base64url")), decipher.final()]).toString("utf8")) as T;
+}
+
+export function stableOpaqueId(namespace: string, parts: Array<string | number>) {
+  const value = `${namespace}\0${parts.join("\0")}`;
+  return createHmac("sha256", encryptionKey()).update(value).digest("base64url").slice(0, 32);
 }

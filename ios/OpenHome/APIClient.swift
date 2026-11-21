@@ -135,15 +135,15 @@ struct RemoteGateProvider: GateProvider {
         let response: Envelope<[GateResource]> = try await client.get("doors")
         return response.data
     }
-    func setSelected(resourceID: String, selected: Bool) async throws -> [GateResource] {
-        let response: Envelope<[GateResource]> = try await client.send("doors/\(resourceID)", method: "PATCH", body: ["selected": selected])
+    func setSelected(resourceHandle: String, selected: Bool) async throws -> [GateResource] {
+        let response: Envelope<[GateResource]> = try await client.send("doors/\(resourceHandle)", method: "PATCH", body: ["selected": selected])
         return response.data
     }
-    func open(resourceID: String, idempotencyKey: String) async throws -> OperationResult {
-        try await client.request("doors/\(resourceID)/open", method: "POST", headers: ["Idempotency-Key": idempotencyKey])
+    func open(resourceHandle: String, idempotencyKey: String) async throws -> OperationResult {
+        try await client.request("doors/\(resourceHandle)/open", method: "POST", headers: ["Idempotency-Key": idempotencyKey])
     }
-    func password(resourceID: String) async throws -> GatePassword {
-        let response: Envelope<GatePassword> = try await client.get("doors/\(resourceID)/password")
+    func password(resourceHandle: String) async throws -> GatePassword {
+        let response: Envelope<GatePassword> = try await client.get("doors/\(resourceHandle)/password")
         return response.data
     }
 }

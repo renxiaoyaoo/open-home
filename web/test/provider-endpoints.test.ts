@@ -17,9 +17,10 @@ process.env.OPENHOME_PROVIDER_BUNDLE = JSON.stringify({ schemaVersion: 1, access
 process.env.OPENHOME_SESSION_ENCRYPTION_KEY = "00".repeat(32);
 const { OpenDeviceProvider } = await import("../lib/opendevice-provider.ts");
 const { isProviderBundle } = await import("../lib/provider-bundle.ts");
-const { createDoorHandle, readDoorHandle } = await import("../lib/door-handle.ts");
-const { UpstreamError, absorbSetCookies, appendRawSessionId, communityCodes, communityIds, communityNames, cookieHeader, dedupeDoors, doorPassword, doorSortBody, doorSortOrderBody, encryptMobile, isAuthenticationExpired, isSmsAccepted, isSuccess, loginCredential, normalizeDoors, openDoorBody, parseUpstreamCookies, providerPost, providerUrl, serializeUpstreamCookies, signHeaders, signMobileBody, supportsDoorPassword } = await import("../lib/provider.ts");
+const { createDoorHandle, createDoorId, readDoorHandle } = await import("../lib/door-handle.ts");
+const { UpstreamError, absorbSetCookies, appendRawSessionId, communityCodes, communityIds, communityNames, cookieHeader, dedupeDoors, doorPassword, doorSortBody, encryptMobile, isAuthenticationExpired, isSmsAccepted, isSuccess, loginCredential, normalizeDoors, openDoorBody, parseUpstreamCookies, providerPost, providerUrl, serializeUpstreamCookies, signHeaders, signMobileBody, supportsDoorPassword } = await import("../lib/provider.ts");
 const { publicDoor } = await import("../lib/public-door.ts");
+const { verifyDoorSelection } = await import("../lib/door-selection.ts");
 const { personalDisplayName } = await import("../lib/account-name.ts");
 
 test("rejects incomplete provider bundles before a feature uses them", () => {
@@ -31,11 +32,20 @@ test("rejects incomplete provider bundles before a feature uses them", () => {
 });
 
 test("carries a door target in an opaque encrypted handle without persistence", () => {
-  const handle = createDoorHandle("account-1", { communityId: 12, doorControlId: 34, name: "East", communityCode: "private-code", mac: "001122334455", passwordSupported: true });
-  assert.equal(handle.includes("account-1"), false);
-  assert.equal(handle.includes("001122334455"), false);
-  assert.deepEqual(readDoorHandle(handle), { accountId: "account-1", communityId: 12, doorControlId: 34, communityCode: "private-code", mac: "001122334455", passwordSupported: true });
-  assert.throws(() => readDoorHandle(`${handle.slice(0, -1)}${handle.endsWith("A") ? "B" : "A"}`));
+  const door = { communityId: 12, doorControlId: 34, name: "East", communityCode: "private-code", mac: "001122334455", passwordSupported: true };
+  const firstHandle = createDoorHandle("account-1", door);
+  const secondHandle = createDoorHandle("account-1", door);
+  assert.notEqual(firstHandle, secondHandle);
+  assert.equal(firstHandle.includes("account-1"), false);
+  assert.equal(firstHandle.includes("001122334455"), false);
+  assert.deepEqual(readDoorHandle(firstHandle), { accountId: "account-1", communityId: 12, doorControlId: 34, communityCode: "private-code", mac: "001122334455", passwordSupported: true });
+  assert.throws(() => readDoorHandle(`${firstHandle.slice(0, -1)}${firstHandle.endsWith("A") ? "B" : "A"}`));
+
+  const stableId = createDoorId("account-1", door);
+  assert.equal(createDoorId("account-1", door), stableId);
+  assert.notEqual(createDoorId("account-2", door), stableId);
+  assert.notEqual(createDoorId("account-1", { ...door, doorControlId: 35 }), stableId);
+  assert.equal(stableId.includes("account-1"), false);
 });
 
 test("routes configured provider APIs", () => {
@@ -351,19 +361,13 @@ test("rebuilds the provider doorSort groups when a common door is added or remov
     list: [{ commondoorControlIds: [], gatedoorControlIds: [10, 40], buildingDoorList: [20], customDoorList: [30] }],
     method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
   });
-  assert.deepEqual(doorSortOrderBody(payload, 8, [10]), {
-    list: [{ commondoorControlIds: [10], gatedoorControlIds: [40], buildingDoorList: [20], customDoorList: [30] }],
-    method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
-  });
-  const pinned = {
-    ...payload,
-    commonlyUsedDoor: [{ doorControlId: 20, doorControlUsefor: "单元门或楼栋门" }, { doorControlId: 40, doorControlUsefor: "大门" }],
-    buildingDoorList: [],
-  };
-  assert.deepEqual(doorSortOrderBody(pinned, 8, [10]), {
-    list: [{ commondoorControlIds: [20, 10], gatedoorControlIds: [40], buildingDoorList: [], customDoorList: [30] }],
-    method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
-  });
+});
+
+test("rejects a provider favorite write that the read-back did not persist", () => {
+  const doors = [{ communityId: 8, doorControlId: 12, providerFeatured: false }];
+  assert.doesNotThrow(() => verifyDoorSelection(doors, 8, 12, false));
+  assert.throws(() => verifyDoorSelection(doors, 8, 12, true), /厂商未确认/);
+  assert.throws(() => verifyDoorSelection(doors, 8, 99, true), /厂商未确认/);
 });
 
 test("encrypts a mobile number with AES-128-ECB PKCS#7", () => {
@@ -409,9 +413,9 @@ test("builds the exact open-door payload and rejects invalid ids", () => {
 });
 
 test("projects an opaque public door without account or upstream identifiers", () => {
-  const value = publicDoor({ publicId: "00000000-0000-4000-8000-000000000001", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, pinned: true, selected: true, refreshedAt: 1 });
-  assert.deepEqual(value, { id: "00000000-0000-4000-8000-000000000001", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, pinned: true, selected: true, refreshedAt: 1 });
-  assert.deepEqual(Object.keys(value || {}).sort(), ["communityName", "id", "name", "passwordSupported", "pinned", "providerFeatured", "refreshedAt", "selected"]);
+  const value = publicDoor({ id: "stable-door", handle: "temporary-handle", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, pinned: true, selected: true, refreshedAt: 1 });
+  assert.deepEqual(value, { id: "stable-door", handle: "temporary-handle", name: "东门", communityName: "测试小区", passwordSupported: true, providerFeatured: true, pinned: true, selected: true, refreshedAt: 1 });
+  assert.deepEqual(Object.keys(value || {}).sort(), ["communityName", "handle", "id", "name", "passwordSupported", "pinned", "providerFeatured", "refreshedAt", "selected"]);
 });
 
 test("extracts a bounded account username from personal info", () => {
