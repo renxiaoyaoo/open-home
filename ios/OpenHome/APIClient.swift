@@ -3,7 +3,12 @@ import Foundation
 struct APIClient: Sendable {
     let baseURL: URL
     let credential: @Sendable () throws -> String
-    private let session = URLSession.shared
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
+    }()
 
     func get<Response: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = []) async throws -> Response {
         try await request(path, method: "GET", query: query)
@@ -21,13 +26,13 @@ struct APIClient: Sendable {
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
         components?.queryItems = query.isEmpty ? nil : query
         guard let url = components?.url else { throw URLError(.badURL) }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = 45
         request.httpMethod = method
         request.httpBody = body
         request.setValue("Bearer \(try credential())", forHTTPHeaderField: "Authorization")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard 200..<300 ~= http.statusCode else {
             let message = (try? JSONDecoder().decode(ErrorEnvelope.self, from: data))?.message

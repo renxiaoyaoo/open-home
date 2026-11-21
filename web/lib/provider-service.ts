@@ -1,5 +1,5 @@
 import { loadCentralSession, persistCentralSession, saveCentralSession, type CentralSession } from "./central.ts";
-import { communityCodes, communityIds, communityNames, dedupeDoors, deviceId, doorSortState, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider.ts";
+import { communityCodes, communityIds, communityNames, dedupeDoors, deviceId, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider.ts";
 import { accessRoute } from "./provider-bundle.ts";
 import { personalDisplayName } from "./account-name.ts";
 
@@ -27,23 +27,9 @@ export async function centralDoors(accountId: string) {
     const featuredOrder = new Map(featured.map((door, index) => [`${door.communityId}:${door.doorControlId}`, index]));
     const all = await providerPost("mobile", accessRoute("allItems"), { communityId }, { ...options, encoding: "multipart" });
     if (!isSuccess(all)) throw new Error(upstreamMessage(all, "门禁查询失败"));
-    const sortState = doorSortState(all.data);
-    const allRows = normalizeDoors(all.data, communityId);
-    const alias = (id: number) => `door-${allRows.findIndex((row) => row.doorControlId === id) + 1}`;
-    const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-    const allRecord = record(all.data); const homeRecord = record(home.data);
-    console.info("gate-rule-shape", {
-      homeFields: Object.keys(homeRecord), allFields: Object.keys(allRecord),
-      home: featured.map((door) => alias(door.doorControlId)),
-      homeDoorList: normalizeDoors(homeRecord.userDoorDTOS, communityId).map((door) => alias(door.doorControlId)),
-      common: sortState.common.map(alias), gate: sortState.gate.map(alias), building: sortState.building.map(alias), custom: sortState.custom.map(alias),
-      gateItemFields: Object.keys(record(Array.isArray(allRecord.gateDoorList) ? allRecord.gateDoorList[0] : undefined)),
-      limits: Object.fromEntries(Object.entries(allRecord).filter(([key, value]) => /(?:max|min|count|limit|size)/i.test(key) && typeof value === "number")),
-    });
     doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId), names.get(communityId)).map((door) => ({
       ...door,
-      providerFeatured: featuredIds.has(`${door.communityId}:${door.doorControlId}`),
-      providerPinned: sortState.common.includes(door.doorControlId) && sortState.categories.get(door.doorControlId) === "building",
+      selected: featuredIds.has(`${door.communityId}:${door.doorControlId}`),
       providerOrder: featuredOrder.get(`${door.communityId}:${door.doorControlId}`),
     })));
   }

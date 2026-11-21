@@ -5,6 +5,9 @@ struct OpenHomeApp: App {
     @State private var appModel: AppModel
 
     init() {
+        if let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(at: support.appendingPathComponent("OpenHomeCache", isDirectory: true))
+        }
 #if DEBUG
         let registry: DirectProviderRegistry = ProcessInfo.processInfo.arguments.contains("--direct-auth-preview") ? .debugAuthenticationPreview() : .unconfigured
 #else

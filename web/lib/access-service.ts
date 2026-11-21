@@ -1,6 +1,5 @@
 import { listActiveAccountIds, loadCentralSession, persistCentralSession } from "./central.ts";
 import { createDoorHandle, createDoorId, readDoorHandle } from "./door-handle.ts";
-import { verifyDoorSelection } from "./door-selection.ts";
 import { centralDoors } from "./provider-service.ts";
 import { doorPassword, doorSortBody, isAuthenticationExpired, isSuccess, normalizeDoors, openDoorBody, providerPost, upstreamMessage } from "./provider.ts";
 import { accessRoute } from "./provider-bundle.ts";
@@ -19,7 +18,7 @@ export async function refreshPublicDoors() {
   const refreshedAt = Date.now();
   const doors = results.flatMap((result) => result.status === "fulfilled" ? result.value.doors.map((door) => ({ value: publicDoor({
     id: createDoorId(result.value.accountId, door), handle: createDoorHandle(result.value.accountId, door), name: door.name, communityName: door.communityName ?? null,
-    passwordSupported: Boolean(door.passwordSupported), providerFeatured: Boolean(door.providerFeatured), pinned: Boolean(door.providerPinned), selected: Boolean(door.providerFeatured), refreshedAt,
+    passwordSupported: Boolean(door.passwordSupported), selected: Boolean(door.selected), refreshedAt,
   }), providerOrder: door.providerOrder ?? Number.MAX_SAFE_INTEGER })) : [])
     .sort((left, right) => Number(right.value.selected) - Number(left.value.selected) || left.providerOrder - right.providerOrder || left.value.name.localeCompare(right.value.name, "zh-CN"))
     .map((item) => item.value);
@@ -62,13 +61,17 @@ export async function setProviderDoorSelected(handle: string, selected: boolean)
   if (!isSuccess(all)) throw new Error(upstreamMessage(all, "门禁查询失败"));
   const body = doorSortBody(all.data, home.data, door.communityId, door.doorControlId, selected);
   const targetId = createDoorId(door.accountId, door);
-  const expected = normalizeDoors(home.data, door.communityId).map((item) => createDoorId(door.accountId, item)).filter((id) => id !== targetId);
-  if (selected) expected.push(targetId);
-  const scope = normalizeDoors(all.data, door.communityId).map((item) => createDoorId(door.accountId, item));
-  const saved = await providerPost("mobile", accessRoute("sortItems"), body, { ...options, encoding: "json", signingExclude: ["list"] });
-  if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
+  const wasSelected = normalizeDoors(home.data, door.communityId).some((item) => item.doorControlId === door.doorControlId);
+  if (wasSelected !== selected) {
+    const saved = await providerPost("mobile", accessRoute("sortItems"), body, { ...options, encoding: "json", signingExclude: ["list"] });
+    if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
+  }
   await persistCentralSession(door.accountId, session);
   const verified = await refreshPublicDoors();
-  verifyDoorSelection(verified.doors, scope, expected);
-  return verified;
+  const actual = verified.doors.find((item) => item.id === targetId);
+  if (!actual) throw new Error("无法读取厂商保存后的门禁状态");
+  const message = actual.selected === selected
+    ? selected ? "已加入常用门禁" : "已移出常用门禁"
+    : actual.selected ? "厂商仍将此门禁列为常用" : "厂商未将此门禁加入常用";
+  return { ...verified, message };
 }

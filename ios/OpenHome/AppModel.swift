@@ -46,7 +46,14 @@ final class AppModel {
     }
 
     var selectedModule: Module = .gate { didSet { UserDefaults.standard.set(selectedModule.rawValue, forKey: "openhome.selected-module") } }
-    var connection: ConnectionConfiguration?
+    var connection: ConnectionConfiguration? {
+        didSet {
+            if connection?.mode != oldValue?.mode || connection?.centerURL != oldValue?.centerURL || connection?.deviceCredentialID != oldValue?.deviceCredentialID {
+                ModuleSessionState.reset()
+                sessionRevision += 1
+            }
+        }
+    }
     var centerState: CenterState = .disconnected
     var sessionRevision = 0
     let directProviders: DirectProviderRegistry
@@ -116,24 +123,12 @@ final class AppModel {
     }
 
     func discardModuleCache(_ provider: ProviderID, blockReload: Bool = true) {
-        let file: String
-        switch provider {
-        case .gate: file = "gate-resources.json"
-        case .living: file = "dryer.json"
-        case .lock: file = "lock.json"
-        case .auto: file = "vehicle.json"
-        }
-        if blockReload { ModuleContentStore.block(file) } else { ModuleContentStore.remove(file) }
+        if blockReload { ModuleSessionState.block(provider) } else { ModuleSessionState.invalidate() }
         sessionRevision += 1
     }
 
     func restoreModule(_ provider: ProviderID) {
-        switch provider {
-        case .gate: ModuleContentStore.unblock("gate-resources.json")
-        case .living: ModuleContentStore.unblock("dryer.json")
-        case .lock: ModuleContentStore.unblock("lock.json")
-        case .auto: ModuleContentStore.unblock("vehicle.json")
-        }
+        ModuleSessionState.unblock(provider)
         sessionRevision += 1
     }
 
@@ -154,34 +149,12 @@ final class AppModel {
     }
 }
 
-enum ModuleContentStore {
+enum ModuleSessionState {
     private(set) static var revision = 0
-    private static var blocked: Set<String> = []
-    static func isBlocked(_ name: String) -> Bool { blocked.contains(name) }
-    static func block(_ name: String) { blocked.insert(name); remove(name) }
-    static func unblock(_ name: String) { blocked.remove(name) }
-    private static var directory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("OpenHomeCache", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base
-    }
-
-    static func load<T: Decodable>(_ name: String, as type: T.Type) -> T? {
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { return nil }
-        return try? JSONDecoder().decode(type, from: data)
-    }
-
-    static func save<T: Encodable>(_ name: String, _ value: T) {
-        let seen = revision
-        guard !blocked.contains(name) else { return }
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        guard seen == revision, !blocked.contains(name) else { return }
-        let url = directory.appendingPathComponent(name)
-        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-    }
-
-    static func remove(_ name: String) {
-        revision += 1
-        try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
-    }
+    private static var blocked: Set<ProviderID> = []
+    static func isBlocked(_ provider: ProviderID) -> Bool { blocked.contains(provider) }
+    static func block(_ provider: ProviderID) { blocked.insert(provider); invalidate() }
+    static func unblock(_ provider: ProviderID) { blocked.remove(provider) }
+    static func invalidate() { revision += 1 }
+    static func reset() { blocked.removeAll(); invalidate() }
 }

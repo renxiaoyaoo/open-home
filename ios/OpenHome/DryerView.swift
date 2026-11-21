@@ -39,26 +39,24 @@ final class DryerViewModel {
 
     init(provider: any DryerProvider, registrar: (any LiveActivityRegistrar)? = nil) {
         self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar)
-        if let cached = ModuleContentStore.load("dryer.json", as: DryerCache.self) { snapshot = cached.snapshot; programs = cached.programs }
     }
 
     func discardDisplayedContent() { snapshot = nil; programs = []; message = nil }
 
     func refresh(showLoading: Bool = true) async {
-        let revision = ModuleContentStore.revision
-        guard !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
+        let revision = ModuleSessionState.revision
+        guard !ModuleSessionState.isBlocked(.living) else { discardDisplayedContent(); return }
         guard !refreshInFlight, !isOperating else { return }
         refreshInFlight = true
         if showLoading { isLoading = true }
         defer { refreshInFlight = false; if showLoading { isLoading = false } }
         do {
             let value = try await provider.snapshot()
-            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
+            guard revision == ModuleSessionState.revision, !ModuleSessionState.isBlocked(.living) else { discardDisplayedContent(); return }
             if value.programID != snapshot?.programID { programPresentation = nil }
             snapshot = value; parameterValues = value.parameters; message = nil; await updateLiveStatus(value)
             if programs.isEmpty { programs = (try? await provider.programs()) ?? [] }
-            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("dryer.json") else { discardDisplayedContent(); return }
-            ModuleContentStore.save("dryer.json", DryerCache(snapshot: value, programs: programs))
+            guard revision == ModuleSessionState.revision, !ModuleSessionState.isBlocked(.living) else { discardDisplayedContent(); return }
         } catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
         catch let error as APIError {
@@ -361,6 +359,5 @@ private struct DryerProgramSettingsView: View {
     @MainActor private func submit() async { isApplying = true; message = nil; let succeeded = await apply(selection); isApplying = false; if succeeded { dismiss() } else { message = "参数设置失败，请重试" } }
 }
 
-private struct DryerCache: Codable { var snapshot: DryerSnapshot; var programs: [DryerProgram] }
 extension DryerSnapshot.State { var label: String { switch self { case .off: "已关机"; case .idle: "待机"; case .running: "烘干中"; case .paused: "已暂停"; case .scheduled: "已预约"; case .finished: "已完成"; case .fault: "设备故障" } } }
 private extension Color { static let openHomeLiving = Color(red: 0.286, green: 0.420, blue: 0.443) }

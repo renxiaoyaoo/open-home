@@ -12,10 +12,6 @@ import UIKit
     private let provider: any LockProvider
     init(provider: any LockProvider) {
         self.provider = provider
-        if let cached = ModuleContentStore.load("lock.json", as: LockCache.self) {
-            devices = cached.devices; selectedDeviceID = cached.selectedDeviceID; detail = cached.detail
-            dynamics = cached.dynamics; security = cached.security; operations = cached.operations; captures = cached.captures
-        }
     }
 
     func discardDisplayedContent() {
@@ -23,12 +19,12 @@ import UIKit
     }
 
     func load() async {
-        let revision = ModuleContentStore.revision
-        guard !ModuleContentStore.isBlocked("lock.json") else { discardDisplayedContent(); return }
+        let revision = ModuleSessionState.revision
+        guard !ModuleSessionState.isBlocked(.lock) else { discardDisplayedContent(); return }
         guard !isLoading else { return }; isLoading = true; defer { isLoading = false }
         do {
             if devices.isEmpty { devices = try await provider.devices(); selectedDeviceID = devices.first?.id ?? "" }
-            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("lock.json") else { discardDisplayedContent(); return }
+            guard revision == ModuleSessionState.revision, !ModuleSessionState.isBlocked(.lock) else { discardDisplayedContent(); return }
             guard !selectedDeviceID.isEmpty else { throw ProviderError.invalidResponse }
             async let nextDetail = provider.detail(deviceID: selectedDeviceID)
             async let nextDynamics = provider.dynamics(deviceID: selectedDeviceID, cursor: nil)
@@ -36,11 +32,10 @@ import UIKit
             async let nextOperations = provider.operationLogs(deviceID: selectedDeviceID, cursor: nil)
             async let nextCaptures = provider.captures(deviceID: selectedDeviceID, cursor: nil)
             let (loadedDetail, d, s, o, c) = try await (nextDetail, nextDynamics, nextSecurity, nextOperations, nextCaptures)
-            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("lock.json") else { discardDisplayedContent(); return }
+            guard revision == ModuleSessionState.revision, !ModuleSessionState.isBlocked(.lock) else { discardDisplayedContent(); return }
             detail = loadedDetail; dynamics = d.items; security = s.items; operations = o.items; captures = c.items
             cursors = [.dynamics: d.nextCursor, .security: s.nextCursor, .operation: o.nextCursor].compactMapValues { $0 }
             captureCursor = c.nextCursor; message = nil
-            ModuleContentStore.save("lock.json", LockCache(devices: devices, selectedDeviceID: selectedDeviceID, detail: loadedDetail, dynamics: d.items, security: s.items, operations: o.items, captures: c.items))
         } catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
         catch let error as APIError {
@@ -270,16 +265,6 @@ private struct RotatedVideo: View {
         }
         .aspectRatio(3 / 4, contentMode: .fit)
     }
-}
-
-private struct LockCache: Codable {
-    var devices: [LockDevice]
-    var selectedDeviceID: String
-    var detail: LockDetail
-    var dynamics: [LockEvent]
-    var security: [LockEvent]
-    var operations: [LockEvent]
-    var captures: [LockCapture]
 }
 
 private extension Color { static let openHomeLock = Color(red: 0.397, green: 0.438, blue: 0.333) }

@@ -16,31 +16,25 @@ final class GateViewModel {
 
     init(provider: any GateProvider) {
         self.provider = provider
-        resources = ModuleContentStore.load("gate-resources.json", as: [GateResource].self) ?? []
-        passwords = ShownGatePasswords.values
     }
 
     func discardDisplayedContent() {
         resources = []
         message = nil
-        if ModuleContentStore.isBlocked("gate-resources.json") {
-            passwords = [:]
-            ShownGatePasswords.values = [:]
-        }
+        passwords = [:]
     }
 
     func load() async {
         guard !isLoading else { return }
-        let revision = ModuleContentStore.revision
-        guard !ModuleContentStore.isBlocked("gate-resources.json") else { discardDisplayedContent(); return }
+        let revision = ModuleSessionState.revision
+        guard !ModuleSessionState.isBlocked(.gate) else { discardDisplayedContent(); return }
         isLoading = true
         defer { isLoading = false }
         do {
             let value = try await provider.resources()
-            guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("gate-resources.json") else { discardDisplayedContent(); return }
+            guard revision == ModuleSessionState.revision, !ModuleSessionState.isBlocked(.gate) else { discardDisplayedContent(); return }
             resources = value
             message = nil
-            ModuleContentStore.save("gate-resources.json", resources)
         }
         catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
@@ -68,37 +62,47 @@ final class GateViewModel {
     }
 
     func showPassword(_ resource: GateResource) async {
-        if let value = passwords[resource.id] { copy(value.password); return }
         guard busyID == nil else { return }
         busyID = resource.id; defer { busyID = nil }
+        let revision = ModuleSessionState.revision
+        guard !ModuleSessionState.isBlocked(.gate) else { return }
         do {
             let value = try await provider.password(resourceHandle: resource.handle)
+            guard revision == ModuleSessionState.revision, !ModuleSessionState.isBlocked(.gate), value.validUntil > .now else { return }
             passwords[resource.id] = value
-            ShownGatePasswords.values[resource.id] = value
-            copy(value.password)
+            copy(value)
+            Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(max(0, value.validUntil.timeIntervalSinceNow))) }
+                catch { return }
+                if self?.passwords[resource.id] == value { self?.passwords.removeValue(forKey: resource.id) }
+            }
         } catch { notify(error.localizedDescription) }
     }
 
-    func copy(_ password: String) {
-        UIPasteboard.general.string = password
+    func copy(_ value: GatePassword) {
+        guard value.validUntil > .now else {
+            passwords = passwords.filter { $0.value.validUntil > .now }
+            return
+        }
+        UIPasteboard.general.string = value.password
         notify("密码已复制")
     }
 
     func setFavorite(_ resource: GateResource, selected: Bool) async {
-        guard !resource.isPinned, resource.selected != selected, busyID == nil else { return }
-        let snapshot = resources
+        guard resource.selected != selected, busyID == nil else { return }
         busyID = resource.id
         defer { busyID = nil }
         do {
-            let revision = ModuleContentStore.revision
+            let revision = ModuleSessionState.revision
             let value = try await provider.setSelected(resourceHandle: resource.handle, selected: selected)
-            guard revision == ModuleContentStore.revision else { discardDisplayedContent(); return }
+            guard revision == ModuleSessionState.revision else { discardDisplayedContent(); return }
             resources = value
-            ModuleContentStore.save("gate-resources.json", resources)
-            notify(selected ? "已加入常用门禁" : "已移出常用门禁", kind: .success)
-        } catch is CancellationError { resources = snapshot }
-        catch let error as URLError where error.code == .cancelled { resources = snapshot }
-        catch { resources = snapshot; notify(error.localizedDescription, kind: .error) }
+            let actual = value.first { $0.id == resource.id }?.selected
+            if actual == selected { notify(selected ? "已加入常用门禁" : "已移出常用门禁", kind: .success) }
+            else { notify(actual == true ? "厂商仍将此门禁列为常用" : "厂商未将此门禁加入常用") }
+        } catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
+        catch { await load(); notify(error.localizedDescription, kind: .error) }
     }
     enum NoticeKind { case success, error, neutral }
     var noticeKind: NoticeKind = .neutral
@@ -166,20 +170,17 @@ struct GateView: View {
 
     private var communities: [(name: String, items: [GateResource])] {
         grouped(model.resources).map { group in
-            let visible = group.items.enumerated().filter { $0.element.selected || $0.element.isPinned }.sorted { lhs, rhs in
-                if lhs.element.isPinned != rhs.element.isPinned { return lhs.element.isPinned }
-                return lhs.offset < rhs.offset
-            }.map(\.element)
+            let visible = group.items.filter(\.selected)
             return (name: group.name, items: visible)
         }
     }
 
     private func gateButton(_ resource: GateResource) -> some View {
-        let shown = ShownGatePasswords.values[resource.id] ?? model.passwords[resource.id]
+        let shown = model.passwords[resource.id]
         let showsKey = resource.passwordSupported || shown != nil
         return HStack(alignment: .center, spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: resource.isPinned ? "building.2" : "door.left.hand.open")
+                Image(systemName: "door.left.hand.open")
                     .font(.system(size: 26, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 32)
@@ -202,9 +203,9 @@ struct GateView: View {
         .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
     }
     private func keyButton(_ resource: GateResource) -> some View {
-        let shown = ShownGatePasswords.values[resource.id] ?? model.passwords[resource.id]
+        let shown = model.passwords[resource.id]
         return Button {
-            if let value = shown { model.copy(value.password) }
+            if let value = shown { model.copy(value) }
             else { Task { await model.showPassword(resource) } }
         } label: {
             ZStack {
@@ -274,7 +275,6 @@ private struct GateManagementView: View {
     private var scoped: [GateResource] { model.resources.filter { $0.communityTitle == community } }
     private var allDoors: [GateResource] {
         scoped.enumerated().sorted { left, right in
-            if left.element.isPinned != right.element.isPinned { return left.element.isPinned }
             if left.element.selected != right.element.selected { return left.element.selected }
             return left.offset < right.offset
         }.map(\.element)
@@ -284,7 +284,7 @@ private struct GateManagementView: View {
         HStack(spacing: 12) {
             Button { Task { await model.open(resource) } } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: resource.isPinned ? "building.2" : "door.left.hand.open")
+                    Image(systemName: "door.left.hand.open")
                         .foregroundStyle(.secondary).frame(width: 28)
                     Text(resource.name).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
                     Spacer(minLength: 8)
@@ -297,13 +297,13 @@ private struct GateManagementView: View {
                     await model.setFavorite(resource, selected: !resource.selected)
                 }
             } label: {
-                Image(systemName: resource.selected || resource.isPinned ? "star.fill" : "star")
-                    .font(.title3).foregroundStyle(resource.selected || resource.isPinned ? Color.openHomeGate : .secondary)
+                Image(systemName: resource.selected ? "star.fill" : "star")
+                    .font(.title3).foregroundStyle(resource.selected ? Color.openHomeGate : .secondary)
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(.borderless)
-            .disabled(resource.isPinned || model.busyID != nil)
-            .accessibilityLabel(resource.isPinned ? "常驻门禁" : resource.selected ? "取消常用" : "加入常用")
+            .disabled(model.busyID != nil)
+            .accessibilityLabel(resource.selected ? "取消常用" : "加入常用")
         }
     }
 }
@@ -317,16 +317,11 @@ private struct SteadyButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { configuration.label }
 }
 
-private enum ShownGatePasswords {
-    static var values: [String: GatePassword] = [:]
-}
-
 private extension GateResource {
     var communityTitle: String {
         let value = communityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? "其他门禁" : value
     }
-    var isPinned: Bool { pinned == true }
 }
 
 private extension Color { static let openHomeGate = Color(red: 0.604, green: 0.353, blue: 0.271) }

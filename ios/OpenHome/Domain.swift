@@ -25,8 +25,6 @@ struct GateResource: Codable, Sendable, Identifiable, Equatable {
     let name: String
     let communityName: String?
     let passwordSupported: Bool
-    let providerFeatured: Bool
-    let pinned: Bool?
     let selected: Bool
     let refreshedAt: Int64
 }
