@@ -21,3 +21,28 @@ issued device bearer token. The Web origin may remain behind an identity proxy;
 the server accepts its configured trusted identity header. These can be two
 hostnames routing the same application and database, without coupling the core
 protocol to a hosting vendor.
+
+## Signing configurations
+
+OpenHome keeps one implementation with two capability levels:
+
+- `OpenHome Free` uses the `Debug-Free` and `Release-Free` configurations. It
+  keeps local Live Activities but uses only app-local storage and does not
+  request APNs tokens or register remote Live Activity updates. Its minimal
+  entitlements support development signing with a Personal Team.
+- `OpenHome Full` uses the `Debug-Full` and `Release-Full` configurations. It
+  enables Push Notifications, shared App Group and Keychain storage, and remote
+  Live Activity token registration for a paid Apple Developer team and release
+  builds.
+
+The repository never stores a Development Team. Load `IOS_DEVELOPMENT_TEAM`
+from private machine configuration and pass it only to the build invocation:
+
+```sh
+xcodebuild -project OpenHome.xcodeproj \
+  -scheme "OpenHome Free" \
+  -configuration Debug-Free \
+  -destination "generic/platform=iOS" \
+  DEVELOPMENT_TEAM="$IOS_DEVELOPMENT_TEAM" \
+  -allowProvisioningUpdates build
+```

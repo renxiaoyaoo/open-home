@@ -7,7 +7,11 @@ struct ConnectionStore {
     private let tokenAccount = "center.device-token"
 
     init() {
+#if OPENHOME_FULL_CAPABILITIES
         let shared = UserDefaults(suiteName: "group.org.openhome.app") ?? .standard
+#else
+        let shared = UserDefaults.standard
+#endif
         if shared.data(forKey: configurationKey) == nil,
            let legacy = UserDefaults.standard.data(forKey: configurationKey) {
             shared.set(legacy, forKey: configurationKey)

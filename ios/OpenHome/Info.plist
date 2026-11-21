@@ -10,7 +10,7 @@
 <key>CFBundlePackageType</key><string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
-<key>OpenHomeKeychainAccessGroup</key><string>$(AppIdentifierPrefix)org.openhome.shared</string>
+<key>OpenHomeKeychainAccessGroup</key><string>$(OPENHOME_KEYCHAIN_ACCESS_GROUP)</string>
 <key>NSCameraUsageDescription</key><string>扫描 OpenHome 部署生成的激活二维码</string>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>org.openhome.activation</string><key>CFBundleURLSchemes</key><array><string>openhome</string></array></dict></array>
 <key>NSSupportsLiveActivities</key><true/>

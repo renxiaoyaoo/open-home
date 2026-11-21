@@ -5,7 +5,9 @@ struct KeychainStore: Sendable {
     let service = "org.openhome.app"
 
     private var accessGroup: String? {
-        Bundle.main.object(forInfoDictionaryKey: "OpenHomeKeychainAccessGroup") as? String
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "OpenHomeKeychainAccessGroup") as? String,
+              !value.isEmpty else { return nil }
+        return value
     }
 
     private func query(account: String, shared: Bool = true) -> [String: Any] {

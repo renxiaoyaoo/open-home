@@ -75,7 +75,11 @@ struct RemoteProviderFactory: ProviderFactory {
     }
 
     func liveActivityRegistrar() -> (any LiveActivityRegistrar)? {
+#if OPENHOME_FULL_CAPABILITIES
         RemoteLiveActivityRegistrar(client: APIClient(baseURL: baseURL, credential: credential))
+#else
+        nil
+#endif
     }
 }
 

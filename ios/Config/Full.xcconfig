@@ -1,0 +1,6 @@
+#include "Base.xcconfig"
+
+APS_ENVIRONMENT = $(OPENHOME_APS_ENVIRONMENT)
+CODE_SIGN_ENTITLEMENTS = OpenHome/OpenHomeFull.entitlements
+OPENHOME_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)org.openhome.shared
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) OPENHOME_FULL_CAPABILITIES
