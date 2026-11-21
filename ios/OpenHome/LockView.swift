@@ -8,14 +8,13 @@ import UIKit
     var devices: [LockDevice] = []; var selectedDeviceID = ""; var detail: LockDetail?
     var dynamics: [LockEvent] = []; var security: [LockEvent] = []; var operations: [LockEvent] = []; var captures: [LockCapture] = []
     var cursors: [RecordKind: String] = [:]; var captureCursor: String?; var temporaryPassword: LockTemporaryPassword?
-    var isLoading = false; var loadingMore: String?; var isCreatingPassword = false; var message: String?; var notice: String?; var lastUpdatedAt: Date?
+    var isLoading = false; var loadingMore: String?; var isCreatingPassword = false; var message: String?; var notice: String?
     private let provider: any LockProvider
     init(provider: any LockProvider) {
         self.provider = provider
         if let cached = ModuleContentStore.load("lock.json", as: LockCache.self) {
             devices = cached.devices; selectedDeviceID = cached.selectedDeviceID; detail = cached.detail
             dynamics = cached.dynamics; security = cached.security; operations = cached.operations; captures = cached.captures
-            lastUpdatedAt = cached.updatedAt
         }
     }
 
@@ -41,8 +40,7 @@ import UIKit
             detail = loadedDetail; dynamics = d.items; security = s.items; operations = o.items; captures = c.items
             cursors = [.dynamics: d.nextCursor, .security: s.nextCursor, .operation: o.nextCursor].compactMapValues { $0 }
             captureCursor = c.nextCursor; message = nil
-            lastUpdatedAt = .now
-            ModuleContentStore.save("lock.json", LockCache(devices: devices, selectedDeviceID: selectedDeviceID, detail: loadedDetail, dynamics: d.items, security: s.items, operations: o.items, captures: c.items, updatedAt: lastUpdatedAt))
+            ModuleContentStore.save("lock.json", LockCache(devices: devices, selectedDeviceID: selectedDeviceID, detail: loadedDetail, dynamics: d.items, security: s.items, operations: o.items, captures: c.items))
         } catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
         catch let error as APIError {
@@ -100,7 +98,7 @@ struct LockView: View {
                         infoRow("信号", signalQuality(detail.wifiSignal), tone: statusTone(signalQuality(detail.wifiSignal)))
                         batteryRow("门锁电量", detail.battery)
                         batteryRow("猫眼电量", detail.cameraBattery)
-                        infoRow("更新时间", model.lastUpdatedAt.map(openHomeTimeText) ?? "未知")
+                        infoRow("更新时间", detail.batteryUpdatedAt.map { displayTime($0) } ?? "未知")
                     } header: {
                         HStack(alignment: .firstTextBaseline) {
                             Text(detail.name ?? model.devices.first(where: { $0.id == model.selectedDeviceID })?.name ?? "智能门锁").font(.title3.weight(.semibold)).foregroundStyle(.primary).textCase(nil)
@@ -282,7 +280,6 @@ private struct LockCache: Codable {
     var security: [LockEvent]
     var operations: [LockEvent]
     var captures: [LockCapture]
-    var updatedAt: Date?
 }
 
 private extension Color { static let openHomeLock = Color(red: 0.397, green: 0.438, blue: 0.333) }

@@ -30,6 +30,7 @@ final class GateViewModel {
     }
 
     func load() async {
+        guard !isLoading else { return }
         let revision = ModuleContentStore.revision
         guard !ModuleContentStore.isBlocked("gate-resources.json") else { discardDisplayedContent(); return }
         isLoading = true
@@ -38,6 +39,7 @@ final class GateViewModel {
             let value = try await provider.resources()
             guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("gate-resources.json") else { discardDisplayedContent(); return }
             resources = value
+            message = nil
             ModuleContentStore.save("gate-resources.json", resources)
         }
         catch is CancellationError { return }
@@ -120,8 +122,7 @@ struct GateView: View {
         Group {
             if model.isLoading && model.resources.isEmpty { ProgressView("正在读取门禁").frame(maxWidth: .infinity, maxHeight: .infinity) }
             else if model.resources.isEmpty {
-                if let message = model.message { ContentUnavailableView("还没有门禁", systemImage: "door.left.hand.closed", description: Text(message)) }
-                else { ContentUnavailableView("还没有门禁", systemImage: "door.left.hand.closed") }
+                OpenHomeUnavailable(title: "还没有门禁", systemImage: "door.left.hand.closed", description: model.message, actionTitle: "重试") { Task { await model.load() } }
             }
             else {
                 ScrollView {

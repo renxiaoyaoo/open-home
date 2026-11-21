@@ -132,7 +132,7 @@ export async function providerPost(service: ProviderService, path: string, body:
   const multipart = new FormData();
   if (encoding === "multipart") for (const [key, value] of Object.entries(requestBody)) multipart.set(key, String(value ?? ""));
   const requestData = encoding === "query" ? undefined : encoding === "form" ? serialized.toString() : encoding === "multipart" ? multipart : JSON.stringify(requestBody);
-  const response = await fetch(requestUrl, { method: "POST", headers, body: requestData });
+  const response = await fetch(requestUrl, { method: "POST", headers, body: requestData, signal: AbortSignal.timeout(15_000) });
   if (options?.context) {
     const responseHeaders = response.headers as Headers & { getSetCookie?: () => string[] };
     const setCookies = responseHeaders.getSetCookie?.() ?? (response.headers.get("set-cookie") ? [response.headers.get("set-cookie")!] : []);

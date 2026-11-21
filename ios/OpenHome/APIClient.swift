@@ -22,6 +22,7 @@ struct APIClient: Sendable {
         components?.queryItems = query.isEmpty ? nil : query
         guard let url = components?.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        request.timeoutInterval = 45
         request.httpMethod = method
         request.httpBody = body
         request.setValue("Bearer \(try credential())", forHTTPHeaderField: "Authorization")

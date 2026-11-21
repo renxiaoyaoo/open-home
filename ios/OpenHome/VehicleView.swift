@@ -4,13 +4,13 @@ import SwiftUI
 
 @MainActor @Observable final class VehicleViewModel {
     var vehicles: [VehicleResource] = []; var selectedVehicleID = ""
-    var snapshot: VehicleSnapshot?; var energy: VehicleEnergy?; var isLoading = false; var message: String?; var lastUpdatedAt: Date?; var signedOut = false
+    var snapshot: VehicleSnapshot?; var energy: VehicleEnergy?; var isLoading = false; var message: String?; var signedOut = false
     private let provider: any VehicleProvider; private let liveStatus: LiveStatusManager; private var activityID: String?
     var refreshInterval: Duration { switch snapshot?.state { case .ready, .driving, .charging: .seconds(5); default: .seconds(30) } }
     init(provider: any VehicleProvider, registrar: (any LiveActivityRegistrar)? = nil) {
         self.provider = provider; liveStatus = LiveStatusManager(registrar: registrar)
         if let cached = ModuleContentStore.load("vehicle.json", as: VehicleCache.self) {
-            vehicles = cached.vehicles; snapshot = cached.snapshot; energy = cached.energy; selectedVehicleID = cached.snapshot.vehicleID; lastUpdatedAt = cached.updatedAt
+            vehicles = cached.vehicles; snapshot = cached.snapshot; energy = cached.energy; selectedVehicleID = cached.snapshot.vehicleID
         }
     }
     func discardDisplayedContent() { vehicles = []; selectedVehicleID = ""; snapshot = nil; energy = nil; message = nil; signedOut = false }
@@ -24,10 +24,10 @@ import SwiftUI
             guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); return }
             let current = try await provider.snapshot()
             guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); return }
-            snapshot = current.keepingLocation(from: snapshot); signedOut = false; selectedVehicleID = current.vehicleID; message = nil; markUpdated(); persist(); await updateLiveStatus(snapshot ?? current)
+            snapshot = current.keepingLocation(from: snapshot); signedOut = false; selectedVehicleID = current.vehicleID; message = nil; persist(); await updateLiveStatus(snapshot ?? current)
             let value = try await provider.detail()
             guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); return }
-            snapshot = value.summary.keepingLocation(from: snapshot); signedOut = false; selectedVehicleID = value.summary.vehicleID; energy = value.energy; message = nil; markUpdated(); persist(); await updateLiveStatus(snapshot ?? value.summary)
+            snapshot = value.summary.keepingLocation(from: snapshot); signedOut = false; selectedVehicleID = value.summary.vehicleID; energy = value.energy; message = nil; persist(); await updateLiveStatus(snapshot ?? value.summary)
         } catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
         catch let error as APIError {
@@ -39,7 +39,7 @@ import SwiftUI
     func selectVehicle(_ id: String) async {
         guard id != selectedVehicleID, !isLoading else { return }
         isLoading = true; defer { isLoading = false }
-        do { try await provider.selectVehicle(id: id); let current = try await provider.snapshot(); selectedVehicleID = id; snapshot = current.keepingLocation(from: snapshot); signedOut = false; message = nil; markUpdated(); await updateLiveStatus(snapshot ?? current); let value = try await provider.detail(); snapshot = value.summary.keepingLocation(from: snapshot); energy = value.energy; markUpdated(); persist(); await updateLiveStatus(snapshot ?? value.summary) }
+        do { try await provider.selectVehicle(id: id); let current = try await provider.snapshot(); selectedVehicleID = id; snapshot = current.keepingLocation(from: snapshot); signedOut = false; message = nil; await updateLiveStatus(snapshot ?? current); let value = try await provider.detail(); snapshot = value.summary.keepingLocation(from: snapshot); energy = value.energy; persist(); await updateLiveStatus(snapshot ?? value.summary) }
         catch { message = error.localizedDescription }
     }
     func refreshStatus() async {
@@ -49,7 +49,7 @@ import SwiftUI
         do {
             let value = try await provider.snapshot()
             guard revision == ModuleContentStore.revision, !ModuleContentStore.isBlocked("vehicle.json") else { keepSignedOutState(); return }
-            snapshot = value.keepingLocation(from: snapshot); signedOut = false; message = nil; markUpdated(); persist(); await updateLiveStatus(snapshot ?? value)
+            snapshot = value.keepingLocation(from: snapshot); signedOut = false; message = nil; persist(); await updateLiveStatus(snapshot ?? value)
         }
         catch is CancellationError { return }
         catch let error as URLError where error.code == .cancelled { return }
@@ -82,8 +82,7 @@ import SwiftUI
     func applySessionChange() {
         keepSignedOutState()
     }
-    private func persist() { guard let snapshot, !signedOut else { return }; ModuleContentStore.save("vehicle.json", VehicleCache(vehicles: vehicles, snapshot: snapshot, energy: energy, updatedAt: lastUpdatedAt)) }
-    private func markUpdated() { lastUpdatedAt = .now }
+    private func persist() { guard let snapshot, !signedOut else { return }; ModuleContentStore.save("vehicle.json", VehicleCache(vehicles: vehicles, snapshot: snapshot, energy: energy)) }
     private func updateLiveStatus(_ value: VehicleSnapshot) async {
         let active = value.state == .ready || value.state == .driving || value.state == .charging
         let end = value.remainingChargeMinutes.map { Date().addingTimeInterval(TimeInterval($0 * 60)) }
@@ -319,7 +318,7 @@ struct VehicleView: View {
         }
     }
     private var updateValue: String {
-        guard let updated = model.lastUpdatedAt else { return "未知" }
+        guard let updated = model.snapshot?.updatedAt else { return "未知" }
         return openHomeTimeText(updated)
     }
     private func tirePanel(_ value: VehicleTirePressure) -> some View {
@@ -395,7 +394,7 @@ struct VehicleView: View {
     }
 }
 
-private struct VehicleCache: Codable { var vehicles: [VehicleResource]; var snapshot: VehicleSnapshot; var energy: VehicleEnergy?; var updatedAt: Date? }
+private struct VehicleCache: Codable { var vehicles: [VehicleResource]; var snapshot: VehicleSnapshot; var energy: VehicleEnergy? }
 private enum VehicleWireDate {
     static func parse(_ value: String) -> Date? { VehicleDateParsing.parse(value) }
 }
