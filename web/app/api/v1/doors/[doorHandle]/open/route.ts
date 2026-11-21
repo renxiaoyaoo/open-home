@@ -7,6 +7,6 @@ export async function POST(request: Request, context: { params: Promise<{ doorHa
   try {
     await assertClientAccess(request);
     const result = await openPublicDoor((await context.params).doorHandle, request.headers.get("idempotency-key") || "");
-    return NextResponse.json(result, { status: result.ok ? 200 : 400 });
+    return NextResponse.json(result, { status: result.ok ? 200 : 400, headers: { "Cache-Control": "no-store" } });
   } catch (error) { return jsonError(error); }
 }

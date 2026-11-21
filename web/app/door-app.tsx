@@ -20,7 +20,7 @@ function groupedDoors(doors: Door[]) {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
-  const response = await fetch(url, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
+  const response = await fetch(url, { ...init, cache: "no-store", headers: { "content-type": "application/json", ...init?.headers } });
   const payload = (await response.json().catch(() => ({}))) as ApiResult<T>;
   if (!response.ok || !payload.ok) throw Object.assign(new Error(payload.message || "请求失败"), { status: response.status });
   return payload;

@@ -10,6 +10,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ doorH
     const doorHandle = (await context.params).doorHandle;
     if (typeof body.selected !== "boolean") throw new Error("选择状态无效");
     const verified = await setProviderDoorSelected(doorHandle, body.selected);
-    return NextResponse.json({ ok: true, data: verified.doors });
+    return NextResponse.json({ ok: true, data: verified.doors }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return jsonError(error); }
 }

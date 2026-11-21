@@ -7,6 +7,6 @@ export async function GET(request: Request) {
   try {
     await assertClientAccess(request);
     const result = await refreshPublicDoors();
-    return NextResponse.json({ ok: true, data: result.doors, meta: { accountCount: result.accountCount, failedAccountCount: result.failedAccountCount, expiredAccountCount: result.expiredAccountCount } });
+    return NextResponse.json({ ok: true, data: result.doors, meta: { accountCount: result.accountCount, failedAccountCount: result.failedAccountCount, expiredAccountCount: result.expiredAccountCount } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return jsonError(error); }
 }
