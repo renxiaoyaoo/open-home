@@ -161,7 +161,7 @@ struct LockView: View {
                 }
                 .listStyle(.insetGrouped)
             } else if model.isLoading { ProgressView("正在读取门锁").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { OpenHomeUnavailable(title: "还没有门锁内容", systemImage: "lock.shield", description: model.message ?? "连接恢复后可以重新读取。", actionTitle: "重试") { Task { await model.load() } } }
+            else { OpenHomeUnavailable(title: "还没有门锁内容", systemImage: "lock.shield", description: model.message, actionTitle: "重试") { Task { await model.load() } } }
         }
         .overlay(alignment: .bottom) { if let notice = model.notice { Text(notice).font(.footnote.weight(.medium)).foregroundStyle(Color.green).padding(.horizontal, 14).padding(.vertical, 10).background(.ultraThinMaterial, in: Capsule()).padding(.bottom, 16) } }
         .onChange(of: appModel.sessionRevision) { _, _ in model.discardDisplayedContent() }
@@ -209,7 +209,7 @@ struct LockView: View {
     }
     private var captureGrid: some View {
         VStack(spacing: 10) {
-            if model.captures.isEmpty { ContentUnavailableView("暂无抓拍", systemImage: "photo", description: Text("近 7 天的照片和视频会出现在这里")).frame(minHeight: 160) }
+            if model.captures.isEmpty { ContentUnavailableView("暂无抓拍", systemImage: "photo").frame(minHeight: 160) }
             else { LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 10) { ForEach(model.captures) { capture in Button { viewer = capture.video.map(Viewer.video) ?? .image(capture.image) } label: { VStack(alignment: .leading, spacing: 5) { ZStack { captureImage(capture.image); if capture.video != nil { Image(systemName: "play.fill").font(.headline).foregroundStyle(.white).padding(9).background(.black.opacity(0.55), in: Circle()) } }.aspectRatio(4 / 3, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10)); Text(capture.video == nil ? "照片" : "视频").font(.caption.bold()).foregroundStyle(.primary); Text(displayTime(capture.time)).font(.caption2).foregroundStyle(.secondary).lineLimit(1) } }.buttonStyle(.plain) } } }
             if let cursor = model.captureCursor { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8).task(id: cursor) { await model.loadMoreCaptures() } }
         }

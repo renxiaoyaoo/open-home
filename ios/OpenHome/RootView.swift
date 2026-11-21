@@ -18,11 +18,7 @@ struct RootView: View {
             } else if model.enabledModules.isEmpty {
                 NavigationStack {
                     List {
-                        Section {
-                            Button("添加模块", systemImage: "plus") { showingModules = true }
-                        } footer: {
-                            Text("添加后会出现在底部。")
-                        }
+                        Button("添加模块", systemImage: "plus") { showingModules = true }
                     }
                     .navigationTitle("OpenHome")
                     .toolbar { moduleToolbar }
@@ -158,8 +154,6 @@ private struct ModuleManagementView: View {
                             }
                         }
                     }
-                } footer: {
-                    Text(model.connection?.mode == .center ? "模块使用同一 OpenHome 中心连接。" : "仅显示此设备已安装的直连 Provider。")
                 }
                 if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
             }
@@ -193,23 +187,6 @@ private struct ConnectionSetupView: View {
 
             if mode == .center {
                 Section {
-                    VStack(spacing: 10) {
-                        Image(systemName: "house.and.flag.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(Color.openHomeAccent)
-                        Text("连接 OpenHome")
-                            .font(.title2.bold())
-                        Text("扫描管理页生成的二维码，或直接在 iPhone 上打开连接链接。")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                }
-                Section {
                     Button {
                         if DataScannerViewController.isSupported && DataScannerViewController.isAvailable { showingScanner = true }
                         else { errorMessage = "此设备当前无法使用相机扫描" }
@@ -225,7 +202,7 @@ private struct ConnectionSetupView: View {
                 Section {
                     DisclosureGroup("手动输入", isExpanded: $showingManualActivation) {
                         VStack(spacing: 12) {
-                            TextField("OpenHome 地址（管理页复制）", text: $centerAddress)
+                            TextField("OpenHome 地址", text: $centerAddress)
                                 .keyboardType(.URL).textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             TextField("激活码", text: $activationCode)
                                 .textInputAutocapitalization(.characters).autocorrectionDisabled()
@@ -238,20 +215,11 @@ private struct ConnectionSetupView: View {
                         }
                         .padding(.top, 8)
                     }
-                } footer: {
-                    Text("管理页会同时显示 OpenHome 地址和激活码。")
                 }
                 if let errorMessage {
                     Section { Label(errorMessage, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
                 }
             } else {
-                Section {
-                    VStack(spacing: 10) {
-                        Image(systemName: "iphone.gen3").font(.system(size: 36)).foregroundStyle(Color.openHomeAccent)
-                        Text("仅在此设备使用").font(.title2.bold())
-                    }.frame(maxWidth: .infinity).padding(.vertical, 12)
-                    .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
-                }
                 Section {
                     if model.directProviders.installed.isEmpty {
                         ContentUnavailableView("没有可用的直连模块", systemImage: "shippingbox", description: Text("此构建未安装直连 Provider"))
@@ -482,12 +450,12 @@ private struct ModuleUnavailableView: View {
 struct OpenHomeUnavailable: View {
     let title: String
     let systemImage: String
-    let description: String
+    let description: String?
     var actionTitle: String? = nil
     var action: (() -> Void)? = nil
 
     var body: some View {
-        if let actionTitle, let action {
+        if let actionTitle, let action, let description, !description.isEmpty {
             ContentUnavailableView {
                 Label(title, systemImage: systemImage)
             } description: {
@@ -495,12 +463,20 @@ struct OpenHomeUnavailable: View {
             }             actions: {
                 Button(actionTitle, action: action).buttonStyle(.bordered).controlSize(.large)
             }
-        } else {
+        } else if let actionTitle, let action {
+            ContentUnavailableView {
+                Label(title, systemImage: systemImage)
+            } actions: {
+                Button(actionTitle, action: action).buttonStyle(.bordered).controlSize(.large)
+            }
+        } else if let description, !description.isEmpty {
             ContentUnavailableView {
                 Label(title, systemImage: systemImage)
             } description: {
                 Text(description)
             }
+        } else {
+            ContentUnavailableView(title, systemImage: systemImage)
         }
     }
 }

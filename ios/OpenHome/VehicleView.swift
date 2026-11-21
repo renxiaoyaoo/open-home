@@ -102,10 +102,10 @@ struct VehicleView: View {
     init(provider: any VehicleProvider, registrar: (any LiveActivityRegistrar)? = nil) { _model = State(initialValue: VehicleViewModel(provider: provider, registrar: registrar)) }
     var body: some View {
         Group {
-            if model.signedOut || model.message?.contains("登录") == true { OpenHomeUnavailable(title: "尚未登录", systemImage: "person.crop.circle.badge.xmark", description: model.message ?? "登录车辆账号后才会显示内容。") }
+            if model.signedOut || model.message?.contains("登录") == true { OpenHomeUnavailable(title: "尚未登录", systemImage: "person.crop.circle.badge.xmark", description: model.message) }
             else if let value = model.snapshot { vehicleList(value) }
             else if model.isLoading { ProgressView("正在读取车辆").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { OpenHomeUnavailable(title: "还没有车辆内容", systemImage: "car.side", description: model.message ?? "连接恢复后可以重新读取。", actionTitle: "重试") { Task { await model.loadDetail() } } }
+            else { OpenHomeUnavailable(title: "还没有车辆内容", systemImage: "car.side", description: model.message, actionTitle: "重试") { Task { await model.loadDetail() } } }
         }
         .onChange(of: appModel.sessionRevision) { _, _ in model.applySessionChange() }
         .task(id: scenePhase) {

@@ -46,6 +46,7 @@ final class GateViewModel {
             if case .providerAuthenticationRequired = error { discardDisplayedContent() }
             message = error.localizedDescription
         }
+        catch is DecodingError { message = "请更新 OpenHome 中心" }
         catch { message = error.localizedDescription }
     }
 
@@ -118,7 +119,10 @@ struct GateView: View {
     var body: some View {
         Group {
             if model.isLoading && model.resources.isEmpty { ProgressView("正在读取门禁").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else if model.resources.isEmpty { ContentUnavailableView("还没有门禁", systemImage: "door.left.hand.closed", description: Text(model.message ?? "")) }
+            else if model.resources.isEmpty {
+                if let message = model.message { ContentUnavailableView("还没有门禁", systemImage: "door.left.hand.closed", description: Text(message)) }
+                else { ContentUnavailableView("还没有门禁", systemImage: "door.left.hand.closed") }
+            }
             else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {

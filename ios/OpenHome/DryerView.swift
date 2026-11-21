@@ -217,7 +217,7 @@ struct DryerView: View {
                 }
                 .listStyle(.insetGrouped)
             } else if model.isLoading { ProgressView("正在读取干衣机").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { OpenHomeUnavailable(title: "还没有干衣机内容", systemImage: "washer", description: model.message ?? "连接恢复后可以重新读取。", actionTitle: "重试") { Task { await model.refresh() } } }
+            else { OpenHomeUnavailable(title: "还没有干衣机内容", systemImage: "washer", description: model.message, actionTitle: "重试") { Task { await model.refresh() } } }
         }
         .onChange(of: appModel.sessionRevision) { _, _ in model.discardDisplayedContent() }
         .task(id: scenePhase) {
