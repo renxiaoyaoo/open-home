@@ -23,6 +23,11 @@ codes. The Cloudflare adapter derives the `/api/v1/` base from
 `OPENHOME_CF_API_DOMAIN`; other adapters set `OPENHOME_PUBLIC_API_URL`
 explicitly. Never point native activation at the
 identity-protected Web hostname.
+Protected production deployments require an explicit native API URL. The
+native origin serves only `/api/v1/` routes and accepts device authorization,
+not browser identity headers. An assigned `workers.dev` URL can be used as the
+native API URL; configuration generation enables that Worker endpoint only
+when it is the configured native origin.
 Live Activity state is refreshed through the authenticated, platform-neutral
 `POST /api/v1/live-activities/refresh` contract. Run `npm run
 live-activities:refresh` from any trusted scheduler with the deployment's

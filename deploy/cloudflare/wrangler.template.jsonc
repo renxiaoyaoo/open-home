@@ -4,6 +4,7 @@
   "compatibility_date": "2026-05-15",
   "compatibility_flags": ["nodejs_compat"],
   "no_bundle": true,
+  "workers_dev": __WORKERS_DEV__,
   __ROUTES__
   "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "vars": {

@@ -2,7 +2,8 @@ import { createHmac, randomUUID } from "node:crypto";
 import { getDb } from "../db/index.ts";
 import type { ProviderRequestContext } from "./provider.ts";
 import { openSession, sealSession } from "./session-crypto.ts";
-import { authenticateDevice } from "./client-auth.ts";
+import { authenticateDevice, ClientAuthorizationError } from "./client-auth.ts";
+import { isNativeAPIOrigin } from "./native-api-origin.ts";
 
 export type ProviderId = "opengate" | "opendevice" | "openlock" | "openauto";
 export type CentralSession = { sessionId: string; signingToken: string; openId: string; context: ProviderRequestContext };
@@ -10,6 +11,7 @@ export type CentralSession = { sessionId: string; signingToken: string; openId: 
 export function assertCentralEnabled() { if (process.env.OPENHOME_ACCESS_ENABLED !== "1") throw new Error("OpenAPI is disabled until access control is configured"); }
 export function assertBrowserAccess(request: Request) {
   assertCentralEnabled();
+  if (isNativeAPIOrigin(request.url, process.env.OPENHOME_PUBLIC_API_URL)) throw new ClientAuthorizationError("Native API requires device authorization");
   const boundaryHeader = (process.env.OPENHOME_BROWSER_IDENTITY_HEADER || "cf-access-jwt-assertion").toLowerCase();
   if (process.env.NODE_ENV === "production" && !request.headers.get(boundaryHeader)) throw new Error("Browser access boundary is missing");
 }

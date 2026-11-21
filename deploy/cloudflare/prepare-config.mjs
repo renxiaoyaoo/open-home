@@ -42,6 +42,7 @@ export function prepareConfiguration(environment = process.env) {
       .replace("__DATABASE_NAME__", databaseName)
       .replace("__API_ENABLED__", apiEnabled)
       .replace("__PUBLIC_API_URL__", JSON.stringify(apiURL))
+      .replace("__WORKERS_DEV__", JSON.stringify(Boolean(apiURL && new URL(apiURL).hostname.endsWith(".workers.dev"))))
       .replace("__ROUTES__", routeConfiguration),
   );
 }

@@ -113,3 +113,29 @@ test("uses the current deployment origin when a separate native API domain is no
     if (previousDomain === undefined) delete process.env.OPENHOME_CF_API_DOMAIN; else process.env.OPENHOME_CF_API_DOMAIN = previousDomain;
   }
 });
+
+test("requires an explicit native API address for protected production deployments", async () => {
+  const previous = { ...process.env };
+  try {
+    delete process.env.OPENHOME_PUBLIC_API_URL;
+    delete process.env.OPENHOME_CF_API_DOMAIN;
+    process.env.NODE_ENV = "production";
+    process.env.OPENHOME_ACCESS_ENABLED = "1";
+    const { configuredPublicAPIURL } = await import("../lib/client-auth.ts");
+    assert.throws(() => configuredPublicAPIURL("https://home.example/manage"), /Native API URL/);
+  } finally { process.env = previous; }
+});
+
+test("rejects browser identity headers on the native API origin", async () => {
+  const previous = { ...process.env };
+  try {
+    process.env.NODE_ENV = "production";
+    process.env.OPENHOME_ACCESS_ENABLED = "1";
+    process.env.OPENHOME_PUBLIC_API_URL = "https://native.example/api/v1";
+    const { assertBrowserAccess, assertClientAccess } = await import("../lib/central.ts");
+    const headers = { "cf-access-jwt-assertion": "forged-browser-header" };
+    assert.throws(() => assertBrowserAccess(new Request("https://native.example/api/v1/accounts", { headers })), /device authorization/);
+    await assert.rejects(() => assertClientAccess(new Request("https://native.example/api/v1/doors", { headers })), /device authorization/);
+    assert.doesNotThrow(() => assertBrowserAccess(new Request("https://home.example/api/v1/doors", { headers })));
+  } finally { process.env = previous; }
+});

@@ -19,6 +19,7 @@ function apiBaseURL(value: string) { const url = new URL(value); if (url.protoco
 export function configuredPublicAPIURL(requestURL?: string) {
   const value = process.env.OPENHOME_PUBLIC_API_URL || (process.env.OPENHOME_CF_API_DOMAIN ? `https://${process.env.OPENHOME_CF_API_DOMAIN}/api/v1` : "");
   if (value) return apiBaseURL(value);
+  if (process.env.NODE_ENV === "production" && process.env.OPENHOME_ACCESS_ENABLED === "1") throw new Error("Native API URL is not configured");
   if (requestURL) return apiBaseURL(new URL("/api/v1", requestURL).toString());
   throw new Error("Public API URL is not configured");
 }
