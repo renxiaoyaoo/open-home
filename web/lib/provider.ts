@@ -262,16 +262,17 @@ export function doorSortState(payload: unknown): DoorSortState {
 }
 
 /** Build the exact body used by the provider's homepage key editor. */
-export function doorSortBody(payload: unknown, communityId: number, doorControlId: number, selected: boolean): JsonMap {
+export function doorSortBody(payload: unknown, homePayload: unknown, communityId: number, doorControlId: number, selected: boolean): JsonMap {
   if (!Number.isSafeInteger(communityId) || communityId <= 0 || !Number.isSafeInteger(doorControlId) || doorControlId <= 0) throw new UpstreamError("门禁参数无效");
   const state = doorSortState(payload);
   const category = state.categories.get(doorControlId);
   if (!category) throw new UpstreamError("无法识别该门禁的官方分类");
-  const without = (ids: number[]) => ids.filter((id) => id !== doorControlId);
-  const common = without(state.common);
-  const groups = { gate: without(state.gate), building: without(state.building), custom: without(state.custom) };
+  if (state.common.includes(doorControlId) && category === "building") throw new UpstreamError("常驻门禁不能移出常用");
+  const common = normalizeDoors(homePayload, communityId).map((door) => door.doorControlId).filter((id) => id !== doorControlId);
   if (selected) common.push(doorControlId);
-  else groups[category].push(doorControlId);
+  const remaining = (ids: number[]) => ids.filter((id) => id !== doorControlId && !common.includes(id));
+  const groups = { gate: remaining(state.gate), building: remaining(state.building), custom: remaining(state.custom) };
+  if (!selected) groups[category].push(doorControlId);
   return {
     list: [{ commondoorControlIds: common, gatedoorControlIds: groups.gate, buildingDoorList: groups.building, customDoorList: groups.custom }],
     method: "doorSort",

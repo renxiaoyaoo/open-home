@@ -1,7 +1,7 @@
-import { loadCentralSession, persistCentralSession, saveCentralSession, type CentralSession } from "./central";
-import { communityCodes, communityIds, communityNames, dedupeDoors, deviceId, doorSortState, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider";
+import { loadCentralSession, persistCentralSession, saveCentralSession, type CentralSession } from "./central.ts";
+import { communityCodes, communityIds, communityNames, dedupeDoors, deviceId, doorSortState, encryptMobile, isSuccess, loginCredential, normalizeDoors, providerPost, upstreamMessage } from "./provider.ts";
 import { accessRoute } from "./provider-bundle.ts";
-import { personalDisplayName } from "./account-name";
+import { personalDisplayName } from "./account-name.ts";
 
 export async function centralLogin(accountId: string, mobile: string, smsCode: string) {
   const openId = deviceId(); const context = { cookies: {} };
@@ -20,51 +20,20 @@ export async function centralDoors(accountId: string) {
   if (!isSuccess(communities)) throw new Error(upstreamMessage(communities, "小区查询失败"));
   const codes = communityCodes(communities.data); const names = communityNames(communities.data); const doors = [];
   for (const communityId of communityIds(communities.data).slice(0, 20)) {
-    let home: Awaited<ReturnType<typeof providerPost>> | null = null;
-    try {
-      home = await providerPost("mobile", accessRoute("homeItems"), { communityId }, { ...options, encoding: "multipart" });
-    } catch {
-      // The complete list remains usable when the home-list request is unavailable.
-    }
-    const featured = home && isSuccess(home) ? normalizeDoors(home.data, communityId, codes.get(communityId), names.get(communityId)) : [];
+    const home = await providerPost("mobile", accessRoute("homeItems"), { communityId }, { ...options, encoding: "multipart" });
+    if (!isSuccess(home)) throw new Error(upstreamMessage(home, "常用门禁查询失败"));
+    const featured = normalizeDoors(home.data, communityId, codes.get(communityId), names.get(communityId));
     const featuredIds = new Set(featured.map((door) => `${door.communityId}:${door.doorControlId}`));
     const featuredOrder = new Map(featured.map((door, index) => [`${door.communityId}:${door.doorControlId}`, index]));
-    let all: Awaited<ReturnType<typeof providerPost>> | null = null;
-    try {
-      all = await providerPost("mobile", accessRoute("allItems"), { communityId }, { ...options, encoding: "multipart" });
-    } catch {
-      // Fall through to the already verified home-list endpoint below.
-    }
-    if (all && isSuccess(all)) {
-      let sortState: ReturnType<typeof doorSortState> | null = null;
-      try { sortState = doorSortState(all.data); } catch { sortState = null; }
-      if (sortState) {
-        const homeIds = new Set(featured.map((door) => door.doorControlId));
-        const allDoors = normalizeDoors(all.data, communityId);
-        console.info("gate-selection-comparison", {
-          homeCount: homeIds.size, commonCount: sortState.common.length,
-          homeOnly: [...homeIds].filter((id) => !sortState.common.includes(id)).length,
-          commonOnly: sortState.common.filter((id) => !homeIds.has(id)).length,
-          allCount: allDoors.length,
-          homeHasDoorList: Boolean(home?.data && typeof home.data === "object" && "userDoorDTOS" in home.data),
-          homeHasCommonGroup: Boolean(home?.data && typeof home.data === "object" && "commonlyUsedDoor" in home.data),
-        });
-      }
-      const commonOrder = sortState ? new Map(sortState.common.map((id, index) => [id, index])) : null;
-      doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId), names.get(communityId)).map((door) => ({
-        ...door,
-        providerFeatured: commonOrder ? commonOrder.has(door.doorControlId) : featuredIds.has(`${door.communityId}:${door.doorControlId}`),
-        providerPinned: Boolean(sortState && commonOrder?.has(door.doorControlId) && sortState.categories.get(door.doorControlId) === "building"),
-        providerOrder: commonOrder ? commonOrder.get(door.doorControlId) : featuredOrder.get(`${door.communityId}:${door.doorControlId}`),
-      })));
-      continue;
-    }
-
-    // Older provider deployments may not expose the complete-list endpoint.
-    // Preserve the previously verified home-list behavior when the complete
-    // list endpoint is unavailable; resource lists are never cached locally.
-    if (!home || !isSuccess(home)) throw new Error(upstreamMessage(home || {}, "门禁查询失败"));
-    doors.push(...featured.map((door, index) => ({ ...door, providerFeatured: true, providerPinned: false, providerOrder: index })));
+    const all = await providerPost("mobile", accessRoute("allItems"), { communityId }, { ...options, encoding: "multipart" });
+    if (!isSuccess(all)) throw new Error(upstreamMessage(all, "门禁查询失败"));
+    const sortState = doorSortState(all.data);
+    doors.push(...normalizeDoors(all.data, communityId, codes.get(communityId), names.get(communityId)).map((door) => ({
+      ...door,
+      providerFeatured: featuredIds.has(`${door.communityId}:${door.doorControlId}`),
+      providerPinned: sortState.common.includes(door.doorControlId) && sortState.categories.get(door.doorControlId) === "building",
+      providerOrder: featuredOrder.get(`${door.communityId}:${door.doorControlId}`),
+    })));
   }
   const result = dedupeDoors(doors); await persistCentralSession(accountId, session); return result;
 }

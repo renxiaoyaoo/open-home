@@ -1,10 +1,10 @@
-import { listActiveAccountIds, loadCentralSession, persistCentralSession } from "./central";
-import { createDoorHandle, createDoorId, readDoorHandle } from "./door-handle";
-import { verifyDoorSelection } from "./door-selection";
-import { centralDoors } from "./provider-service";
-import { doorPassword, doorSortBody, isAuthenticationExpired, isSuccess, openDoorBody, providerPost, upstreamMessage } from "./provider";
+import { listActiveAccountIds, loadCentralSession, persistCentralSession } from "./central.ts";
+import { createDoorHandle, createDoorId, readDoorHandle } from "./door-handle.ts";
+import { verifyDoorSelection } from "./door-selection.ts";
+import { centralDoors } from "./provider-service.ts";
+import { doorPassword, doorSortBody, isAuthenticationExpired, isSuccess, normalizeDoors, openDoorBody, providerPost, upstreamMessage } from "./provider.ts";
 import { accessRoute } from "./provider-bundle.ts";
-import { publicDoor } from "./public-door";
+import { publicDoor } from "./public-door.ts";
 
 type OpenResult = { ok: boolean; message: string; replayed?: boolean };
 const openRequests = new Map<string, { expiresAt: number; promise: Promise<OpenResult> }>();
@@ -56,13 +56,19 @@ export async function setProviderDoorSelected(handle: string, selected: boolean)
   const door = readDoorHandle(handle);
   const session = await loadCentralSession(door.accountId);
   const options = { sessionId: session.sessionId, signingToken: session.signingToken, openId: session.openId, signing: "mobile-body" as const, context: session.context };
+  const home = await providerPost("mobile", accessRoute("homeItems"), { communityId: door.communityId }, { ...options, encoding: "multipart" });
+  if (!isSuccess(home)) throw new Error(upstreamMessage(home, "常用门禁查询失败"));
   const all = await providerPost("mobile", accessRoute("allItems"), { communityId: door.communityId }, { ...options, encoding: "multipart" });
   if (!isSuccess(all)) throw new Error(upstreamMessage(all, "门禁查询失败"));
-  const body = doorSortBody(all.data, door.communityId, door.doorControlId, selected);
+  const body = doorSortBody(all.data, home.data, door.communityId, door.doorControlId, selected);
+  const targetId = createDoorId(door.accountId, door);
+  const expected = normalizeDoors(home.data, door.communityId).map((item) => createDoorId(door.accountId, item)).filter((id) => id !== targetId);
+  if (selected) expected.push(targetId);
+  const scope = normalizeDoors(all.data, door.communityId).map((item) => createDoorId(door.accountId, item));
   const saved = await providerPost("mobile", accessRoute("sortItems"), body, { ...options, encoding: "json", signingExclude: ["list"] });
   if (!isSuccess(saved)) throw new Error(upstreamMessage(saved, "常用门禁保存失败"));
   await persistCentralSession(door.accountId, session);
-  const verified = await centralDoors(door.accountId);
-  verifyDoorSelection(verified, door.communityId, door.doorControlId, selected);
-  return refreshPublicDoors();
+  const verified = await refreshPublicDoors();
+  verifyDoorSelection(verified.doors, scope, expected);
+  return verified;
 }

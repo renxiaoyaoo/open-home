@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 process.env.OPENHOME_PROVIDER_BUNDLE = JSON.stringify({ schemaVersion: 1, access: {
   baseUrls: { mobile: "https://mobile.provider.example/api/", app: "https://app.provider.example/", gateway: "https://gateway.provider.example/" },
@@ -353,21 +356,85 @@ test("rebuilds the provider doorSort groups when a common door is added or remov
     buildingDoorColor: 2,
     customDoorColor: 3,
   };
-  assert.deepEqual(doorSortBody(payload, 8, 20, true), {
+  const home = { userDoorDTOS: [{ doorControlId: 40 }] };
+  assert.deepEqual(doorSortBody(payload, home, 8, 20, true), {
     list: [{ commondoorControlIds: [40, 20], gatedoorControlIds: [10], buildingDoorList: [], customDoorList: [30] }],
     method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
   });
-  assert.deepEqual(doorSortBody(payload, 8, 40, false), {
+  assert.deepEqual(doorSortBody(payload, home, 8, 40, false), {
     list: [{ commondoorControlIds: [], gatedoorControlIds: [10, 40], buildingDoorList: [20], customDoorList: [30] }],
     method: "doorSort", commId: 8, gateDoorColor: 1, buildingDoorColor: 2, customDoorColor: 3,
   });
 });
 
 test("rejects a provider favorite write that the read-back did not persist", () => {
-  const doors = [{ communityId: 8, doorControlId: 12, providerFeatured: false }];
-  assert.doesNotThrow(() => verifyDoorSelection(doors, 8, 12, false));
-  assert.throws(() => verifyDoorSelection(doors, 8, 12, true), /厂商未确认/);
-  assert.throws(() => verifyDoorSelection(doors, 8, 99, true), /厂商未确认/);
+  const doors = [{ id: "door-a", selected: false }, { id: "door-b", selected: true }, { id: "another-account", selected: true }];
+  assert.doesNotThrow(() => verifyDoorSelection(doors, ["door-a", "door-b"], ["door-b"]));
+  assert.throws(() => verifyDoorSelection(doors, ["door-a", "door-b"], ["door-a", "door-b"]), /厂商未确认/);
+  assert.throws(() => verifyDoorSelection(doors, ["missing"], []), /厂商未确认/);
+  assert.throws(() => verifyDoorSelection(doors, ["door-a", "door-b"], []), /厂商未确认/);
+});
+
+test("preserves homepage favorites when the complete list common group contains only a pinned door", () => {
+  const payload = {
+    gateDoorList: [{ doorControlId: 10 }, { doorControlId: 20 }, { doorControlId: 30 }],
+    buildingDoorList: [], customDoorList: [],
+    commonlyUsedDoor: { first: { doorControlId: 40, doorControlUsefor: "单元门或楼栋门" } },
+  };
+  const home = { userDoorDTOS: [{ doorControlId: 10 }, { doorControlId: 20 }], commonlyUsedDoor: payload.commonlyUsedDoor };
+  assert.deepEqual(doorSortBody(payload, home, 8, 30, true).list, [{ commondoorControlIds: [10, 20, 40, 30], gatedoorControlIds: [], buildingDoorList: [], customDoorList: [] }]);
+  assert.deepEqual(doorSortBody(payload, home, 8, 20, false).list, [{ commondoorControlIds: [10, 40], gatedoorControlIds: [30, 20], buildingDoorList: [], customDoorList: [] }]);
+  assert.throws(() => doorSortBody(payload, home, 8, 40, false), /常驻门禁/);
+});
+
+test("round-trips favorites through stored sessions, provider writes and homepage readback across accounts", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "openhome-gate-selection-"));
+  const previousDatabase = process.env.OPENHOME_DATABASE_PATH;
+  process.env.OPENHOME_DATABASE_PATH = join(directory, "test.sqlite");
+  const originalFetch = globalThis.fetch;
+  const selection = new Map([["primary", [10, 20, 40]], ["secondary", [30, 40]]]);
+  const door = (id: number) => ({ doorControlId: id, doorControlName: `Door ${id}` });
+  const pinned = { first: { ...door(40), doorControlUsefor: "单元门或楼栋门" } };
+  let discardExisting = false;
+  let writes = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const account = url.searchParams.get("sessionId") || "";
+    let data: unknown;
+    if (url.pathname.endsWith("/items/groups")) data = [{ communityId: 8, communityName: "Test community" }];
+    else if (url.pathname.endsWith("/items/home")) data = { userDoorDTOS: (selection.get(account) || []).filter((id) => id !== 40).map(door), commonlyUsedDoor: pinned };
+    else if (url.pathname.endsWith("/items/all")) data = { gateDoorList: [10, 20, 30].map(door), buildingDoorList: [], customDoorList: [], commonlyUsedDoor: pinned };
+    else if (url.pathname.endsWith("/items/sort")) {
+      writes += 1;
+      const next = JSON.parse(String(init?.body)).list[0].commondoorControlIds as number[];
+      selection.set(account, discardExisting ? next.filter((id) => id !== 20) : next);
+      data = {};
+    } else throw new Error("Unexpected test provider operation");
+    return Response.json({ code: 0, data });
+  };
+  try {
+    const { saveCentralSession } = await import("../lib/central.ts");
+    const { refreshPublicDoors, setProviderDoorSelected } = await import("../lib/access-service.ts");
+    for (const [index, account] of ["primary", "secondary"].entries()) await saveCentralSession(account, `1380013800${index}`, account, { sessionId: account, signingToken: "test", openId: "test", context: { cookies: {} } });
+    const before = await refreshPublicDoors();
+    const scoped = (doors: typeof before.doors, account: string) => doors.filter((item) => readDoorHandle(item.handle).accountId === account);
+    const selected = (doors: typeof before.doors) => doors.filter((item) => item.selected).map((item) => item.id).sort();
+    assert.equal(scoped(before.doors, "primary").filter((item) => item.selected).length, 3);
+    const target = scoped(before.doors, "primary").find((item) => item.name === "Door 30")!;
+    const added = await setProviderDoorSelected(target.handle, true);
+    assert.equal(added.doors.find((item) => item.id === target.id)?.selected, true);
+    assert.deepEqual(selected(scoped(added.doors, "secondary")), selected(scoped(before.doors, "secondary")));
+    assert.notEqual(added.doors.find((item) => item.id === target.id)?.handle, target.handle);
+    const removed = await setProviderDoorSelected(added.doors.find((item) => item.id === target.id)!.handle, false);
+    assert.deepEqual(selected(removed.doors), selected(before.doors));
+    discardExisting = true;
+    await assert.rejects(() => setProviderDoorSelected(target.handle, true), /厂商未确认/);
+    assert.equal(writes, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousDatabase === undefined) delete process.env.OPENHOME_DATABASE_PATH; else process.env.OPENHOME_DATABASE_PATH = previousDatabase;
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("encrypts a mobile number with AES-128-ECB PKCS#7", () => {
